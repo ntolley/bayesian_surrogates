@@ -12,30 +12,30 @@ import pickle
 
 
 #Helper function to pytorch train networks for decoding
-def train_model(model, optimizer, criterion, max_epochs, training_generator, device, print_freq=10):
-    train_loss_array = []
-    model.train()
-    # Loop over epochs
-    for epoch in range(max_epochs):
-        train_batch_loss = []
-        for batch_x, batch_y in training_generator:
-            optimizer.zero_grad() # Clears existing gradients from previous epoch
-            batch_x = batch_x.float().to(device)
-            batch_y = batch_y.float().to(device)
-            output = model(batch_x)
-            train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
-            train_loss.backward() # Does backpropagation and calculates gradients
-            optimizer.step() # Updates the weights accordingly
+# def train_model(model, optimizer, criterion, max_epochs, training_generator, device, print_freq=10):
+#     train_loss_array = []
+#     model.train()
+#     # Loop over epochs
+#     for epoch in range(max_epochs):
+#         train_batch_loss = []
+#         for batch_x, batch_y in training_generator:
+#             optimizer.zero_grad() # Clears existing gradients from previous epoch
+#             batch_x = batch_x.float().to(device)
+#             batch_y = batch_y.float().to(device)
+#             output = model(batch_x)
+#             train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+#             train_loss.backward() # Does backpropagation and calculates gradients
+#             optimizer.step() # Updates the weights accordingly
 
-            train_batch_loss.append(train_loss.item())
-        print('*',end='')
-        train_loss_array.append(train_batch_loss)
-        #Print Loss
-        if (epoch+1)%print_freq == 0:
-            print('')
-            print('Epoch: {}/{} ...'.format(epoch+1, max_epochs), end=' ')
-            print('Train Loss: ' + str(np.mean(train_batch_loss)))
-    return train_loss_array
+#             train_batch_loss.append(train_loss.item())
+#         print('*',end='')
+#         train_loss_array.append(train_batch_loss)
+#         #Print Loss
+#         if (epoch+1)%print_freq == 0:
+#             print('')
+#             print('Epoch: {}/{} ...'.format(epoch+1, max_epochs), end=' ')
+#             print('Train Loss: ' + str(np.mean(train_batch_loss)))
+#     return train_loss_array
 
 #Helper function to pytorch train networks for decoding
 def train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, print_freq=10, early_stop=20):
@@ -53,7 +53,9 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             batch_x = batch_x.float().to(device)
             batch_y = batch_y.float().to(device)
             output = model(batch_x)
-            train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+            # train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+            train_loss = criterion(output[:,:,:], batch_y[:,:,:])
+
             train_loss.backward() # Does backpropagation and calculates gradients
             optimizer.step() # Updates the weights accordingly
 
@@ -69,7 +71,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
                 batch_x = batch_x.float().to(device)
                 batch_y = batch_y.float().to(device)
                 output = model(batch_x)
-                validation_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+                validation_loss = criterion(output[:,:,:], batch_y[:,:,:])
 
                 validation_batch_loss.append(validation_loss.item())
 
