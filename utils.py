@@ -236,17 +236,18 @@ def evaluate_model(model, generator, device):
 
 class CellType_Dataset(torch.utils.data.Dataset):
     #'Characterizes a dataset for PyTorch'
-    def __init__(self, network_dataset, cell_type='L5_pyramidal', data_step_size=1,
+    def __init__(self, net, cell_type='L5_pyramidal', data_step_size=1,
                  window_size=100, input_spike_scaler=None, vsec_scaler=None, isec_scaler=None,
                  device='cpu'):
         
+        network_data = Network_Data(net)
         self.cell_type = cell_type
-        self.num_cells = len(network_dataset.net.gid_ranges[self.cell_type])
+        self.num_cells = len(network_data.net.gid_ranges[self.cell_type])
         self.data_step_size = data_step_size
         self.window_size = window_size
         self.device = device
 
-        self.input_spike_list, self.vsec_list, self.isec_list = self.process_data(network_dataset)
+        self.input_spike_list, self.vsec_list, self.isec_list = self.process_data(network_data)
         assert len(self.input_spike_list) == len(self.vsec_list) == len(self.isec_list) == self.num_cells
 
         if input_spike_scaler is None:
@@ -282,13 +283,13 @@ class CellType_Dataset(torch.utils.data.Dataset):
         return self.X_tensor[slice_index,:,:], self.y_tensor[slice_index,:,:]
     
 
-    def process_data(self, network_dataset):
-        gid_list = network_dataset.net.gid_ranges[self.cell_type]
+    def process_data(self, network_data):
+        gid_list = network_data.net.gid_ranges[self.cell_type]
         input_spike_list, vsec_list, isec_list = list(), list(), list()
         for gid in gid_list:
-            input_spike_list.append(network_dataset.input_spike_dict[gid].T)
-            vsec_list.append(network_dataset.neuron_data_dict[gid].vsec_array.T)
-            isec_list.append(network_dataset.neuron_data_dict[gid].isec_array.T)
+            input_spike_list.append(network_data.input_spike_dict[gid].T)
+            vsec_list.append(network_data.neuron_data_dict[gid].vsec_array.T)
+            isec_list.append(network_data.neuron_data_dict[gid].isec_array.T)
         
         return input_spike_list, vsec_list, isec_list
 
@@ -319,4 +320,90 @@ class CellType_Dataset(torch.utils.data.Dataset):
 
         return input_spike_unfolded, vsec_unfolded, isec_unfolded
         
+
+class SingleNeuron_Data:
+    #'Characterizes a dataset for PyTorch'
+    def __init__(self, net, gid):
+        self.gid = gid
+        self.cell_type = net.gid_to_type(self.gid)
+
+        if self.cell_type in net.cell_types:
+            self.is_cell = True
+
+            # Get voltages
+            vsec_list, vsec_names = list(), list()
+            for sec_name, vsec in net.cell_response.vsec[0][gid].items():
+                vsec_list.append(vsec)
+                vsec_names.append(sec_name)
+            self.vsec_names = vsec_names
+            self.vsec_array = np.array(vsec_list)
+
+            isec_list, isec_names = list(), list()
+            # Get currents
+            for sec_name, isec_dict in net.cell_response.isec[0][gid].items():
+                for isec_name, isec in isec_dict.items():
+                    isec_list.append(isec)
+                    isec_names.append(isec_name)
+
+            self.isec_array = np.array(isec_list)
+
+            # Create dictionary to look up row for each section/receptor combo
+            isec_name_lookup = {name: idx for idx, name in enumerate(isec_names)}
+            self.isec_name_lookup = isec_name_lookup
+            
+        else:
+            self.is_cell = False
+            
+            
+        self.spikes_binned = self.get_binned_spikes(net)
+
+    def get_binned_spikes(self, net):
+        spike_times = np.array(net.cell_response.spike_times)
+        spike_gids = np.array(net.cell_response.spike_gids)
+
+        spike_times_gid = spike_times[spike_gids == self.gid]
+        spikes_binned = np.histogram(spike_times_gid, bins=net.cell_response.times)[0]
+
+        spikes_binned = np.concatenate([spikes_binned, [0.0]])
+        return spikes_binned
         
+
+
+class Network_Data:
+    def __init__(self, net):
+        self.net = net
+        self.neuron_data_dict = dict()
+        self.input_spike_dict = dict()
+        
+        for cell_type, gid_list in net.gid_ranges.items():
+            for gid in gid_list:
+                self.neuron_data_dict[gid] = SingleNeuron_Data(net, gid)
+
+                # Initialize blank arrays for spikes recieved by each cell
+                if cell_type in net.cell_types:
+                    self.input_spike_dict[gid] = np.zeros(self.neuron_data_dict[gid].isec_array.shape)
+
+        for conn in net.connectivity:
+            for src_gid, target_gid_list in conn['gid_pairs'].items():
+
+                # Loop through all target gids and append spikes to appropriate array
+                # **TODO** - need to add weight and delay
+                for target_gid in target_gid_list:
+                    conn_spikes = self.neuron_data_dict[src_gid].spikes_binned
+
+                    target_type = conn['target_type']
+                    receptor = conn['receptor']
+                    loc = conn['loc']
+
+                    if loc in net.cell_types[target_type].sect_loc:
+                        sect_loc = net.cell_types[target_type].sect_loc[loc]
+                    else:
+                        sect_loc = [loc]
+                        assert loc in net.cell_types[target_type].sections
+
+                    for sec in sect_loc:
+                        input_spike_name = f'{sec}_{receptor}'
+                        input_spike_idx = self.neuron_data_dict[target_gid].isec_name_lookup[input_spike_name]
+                        self.input_spike_dict[target_gid][input_spike_idx, :] += conn_spikes
+
+            
