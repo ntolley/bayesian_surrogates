@@ -233,3 +233,90 @@ def evaluate_model(model, generator, device):
 
     y_pred = y_pred_tensor.detach().cpu().numpy()
     return y_pred
+
+class CellType_Dataset(torch.utils.data.Dataset):
+    #'Characterizes a dataset for PyTorch'
+    def __init__(self, network_dataset, cell_type='L5_pyramidal', data_step_size=1,
+                 window_size=100, input_spike_scaler=None, vsec_scaler=None, isec_scaler=None,
+                 device='cpu'):
+        
+        self.cell_type = cell_type
+        self.num_cells = len(network_dataset.net.gid_ranges[self.cell_type])
+        self.data_step_size = data_step_size
+        self.window_size = window_size
+        self.device = device
+
+        self.input_spike_list, self.vsec_list, self.isec_list = self.process_data(network_dataset)
+        assert len(self.input_spike_list) == len(self.vsec_list) == len(self.isec_list) == self.num_cells
+
+        if input_spike_scaler is None:
+            self.input_spike_scaler = StandardScaler()
+            self.input_spike_scaler.fit(np.vstack(self.input_spike_list))
+        
+        if vsec_scaler is None:
+            self.vsec_scaler = StandardScaler()
+            self.vsec_scaler.fit(np.vstack(self.vsec_list))
+        
+        if isec_scaler is None:
+            self.isec_scaler = StandardScaler()
+            self.isec_scaler.fit(np.vstack(self.isec_list))
+ 
+
+        self.input_spike_unfolded, self.vsec_unfolded, self.isec_unfolded = self.unfold_data()
+        
+        # X is one step behind y
+        self.X_tensor = self.input_spike_unfolded[:, :-1, :]
+        self.y_tensor = self.vsec_unfolded[:, 1:, :]
+        assert self.X_tensor.shape[0] == self.y_tensor.shape[0]
+        self.num_samples = self.X_tensor.shape[0]
+
+        self.X_tensor = self.X_tensor.to(self.device)
+        self.y_tensor = self.y_tensor.to(self.device)
+
+    
+    def __len__(self):
+        #'Denotes the total number of samples'
+        return self.num_samples
+
+    def __getitem__(self, slice_index):
+        return self.X_tensor[slice_index,:,:], self.y_tensor[slice_index,:,:]
+    
+
+    def process_data(self, network_dataset):
+        gid_list = network_dataset.net.gid_ranges[self.cell_type]
+        input_spike_list, vsec_list, isec_list = list(), list(), list()
+        for gid in gid_list:
+            input_spike_list.append(network_dataset.input_spike_dict[gid].T)
+            vsec_list.append(network_dataset.neuron_data_dict[gid].vsec_array.T)
+            isec_list.append(network_dataset.neuron_data_dict[gid].isec_array.T)
+        
+        return input_spike_list, vsec_list, isec_list
+
+    def unfold_data(self):
+        input_spike_unfold_list, vsec_unfold_list, isec_unfold_list = list(), list(), list()
+        for idx in range(self.num_cells):
+            # Input spikes
+            input_spike_transformed = self.input_spike_scaler.transform(self.input_spike_list[idx])
+            input_spike_transformed = torch.from_numpy(input_spike_transformed)
+            input_spike_unfolded = input_spike_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
+            input_spike_unfold_list.append(input_spike_unfolded)
+
+            # Voltages
+            vsec_transformed = self.vsec_scaler.transform(self.vsec_list[idx])
+            vsec_transformed = torch.from_numpy(vsec_transformed)
+            vsec_unfolded = vsec_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
+            vsec_unfold_list.append(vsec_unfolded)
+
+            # Currents
+            isec_transformed = self.isec_scaler.transform(self.isec_list[idx])
+            isec_transformed = torch.from_numpy(isec_transformed)
+            isec_unfolded = isec_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
+            isec_unfold_list.append(isec_unfolded)
+
+        input_spike_unfolded = torch.concat(input_spike_unfold_list, dim=0)
+        vsec_unfolded = torch.concat(vsec_unfold_list, dim=0)
+        isec_unfolded = torch.concat(isec_unfold_list, dim=0)
+
+        return input_spike_unfolded, vsec_unfolded, isec_unfolded
+        
+        
