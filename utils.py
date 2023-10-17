@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import stats
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
 import torch
 from torch import nn
@@ -9,6 +9,8 @@ import torch.nn.functional as F
 import multiprocessing
 from joblib import Parallel, delayed
 import pickle
+from hnn_core.cell import _get_gaussian_connection
+
 
 
 #Helper function to pytorch train networks for decoding
@@ -53,8 +55,8 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             batch_x = batch_x.float().to(device)
             batch_y = batch_y.float().to(device)
             output = model(batch_x)
-            # train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
-            train_loss = criterion(output[:,:,:], batch_y[:,:,:])
+            train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+            # train_loss = criterion(output[:,:,:], batch_y[:,:,:])
 
             train_loss.backward() # Does backpropagation and calculates gradients
             optimizer.step() # Updates the weights accordingly
@@ -71,7 +73,8 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
                 batch_x = batch_x.float().to(device)
                 batch_y = batch_y.float().to(device)
                 output = model(batch_x)
-                validation_loss = criterion(output[:,:,:], batch_y[:,:,:])
+                validation_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+                # validation_loss = criterion(output[:,:,:], batch_y[:,:,:])
 
                 validation_batch_loss.append(validation_loss.item())
 
@@ -247,20 +250,29 @@ class CellType_Dataset(torch.utils.data.Dataset):
         self.window_size = window_size
         self.device = device
 
+        self.vsec_names = network_data.neuron_data_dict[list(net.gid_ranges[cell_type])[0]].vsec_names
+        self.isec_names = network_data.neuron_data_dict[list(net.gid_ranges[cell_type])[0]].isec_names
+
         self.input_spike_list, self.vsec_list, self.isec_list = self.process_data(network_data)
         assert len(self.input_spike_list) == len(self.vsec_list) == len(self.isec_list) == self.num_cells
 
         if input_spike_scaler is None:
             self.input_spike_scaler = StandardScaler()
             self.input_spike_scaler.fit(np.vstack(self.input_spike_list))
+        else:
+            self.input_spike_scaler = input_spike_scaler
         
         if vsec_scaler is None:
             self.vsec_scaler = StandardScaler()
             self.vsec_scaler.fit(np.vstack(self.vsec_list))
+        else:
+            self.vsec_scaler = vsec_scaler
         
         if isec_scaler is None:
             self.isec_scaler = StandardScaler()
             self.isec_scaler.fit(np.vstack(self.isec_list))
+        else:
+            self.isec_scaler = isec_scaler
  
 
         self.input_spike_unfolded, self.vsec_unfolded, self.isec_unfolded = self.unfold_data()
@@ -271,8 +283,8 @@ class CellType_Dataset(torch.utils.data.Dataset):
         assert self.X_tensor.shape[0] == self.y_tensor.shape[0]
         self.num_samples = self.X_tensor.shape[0]
 
-        self.X_tensor = self.X_tensor.to(self.device)
-        self.y_tensor = self.y_tensor.to(self.device)
+        self.X_tensor = self.X_tensor.float().to(self.device)
+        self.y_tensor = self.y_tensor.float().to(self.device)
 
     
     def __len__(self):
@@ -345,6 +357,7 @@ class SingleNeuron_Data:
                     isec_list.append(isec)
                     isec_names.append(isec_name)
 
+            self.isec_names = isec_names
             self.isec_array = np.array(isec_list)
 
             # Create dictionary to look up row for each section/receptor combo
@@ -385,15 +398,37 @@ class Network_Data:
 
         for conn in net.connectivity:
             for src_gid, target_gid_list in conn['gid_pairs'].items():
+                src_type = conn['src_type']
+
+                # Positions assigned based on gid in real network
+                src_pos_list = list(net.pos_dict[src_type])
+
+                # Proximal/distal drives
+                if src_type in net.cell_types:
+                    src_pos = src_pos_list[src_gid - list(net.gid_ranges[src_type])[0]]
+                else:
+                    src_pos = src_pos_list[0]
 
                 # Loop through all target gids and append spikes to appropriate array
-                # **TODO** - need to add weight and delay
+                # **TODO** - need to add delay calculation
                 for target_gid in target_gid_list:
                     conn_spikes = self.neuron_data_dict[src_gid].spikes_binned
 
                     target_type = conn['target_type']
                     receptor = conn['receptor']
                     loc = conn['loc']
+                    # Positions assigned based on gid in real network
+                    target_pos_list = list(net.pos_dict[target_type])
+                    if target_type in net.cell_types:
+                        target_pos = target_pos_list[target_gid - list(net.gid_ranges[target_type])[0]]
+                    else:
+                        target_pos = target_pos_list[0]
+
+                    # Get distance dependent weight/delay for connection
+                    weight, delay = _get_gaussian_connection(
+                        src_pos, target_pos, conn['nc_dict'], inplane_distance=net._inplane_distance)
+
+                    conn_spikes *= weight
 
                     if loc in net.cell_types[target_type].sect_loc:
                         sect_loc = net.cell_types[target_type].sect_loc[loc]
@@ -405,5 +440,4 @@ class Network_Data:
                         input_spike_name = f'{sec}_{receptor}'
                         input_spike_idx = self.neuron_data_dict[target_gid].isec_name_lookup[input_spike_name]
                         self.input_spike_dict[target_gid][input_spike_idx, :] += conn_spikes
-
             
