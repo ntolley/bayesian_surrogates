@@ -257,6 +257,7 @@ class CellType_Dataset(torch.utils.data.Dataset):
         assert len(self.input_spike_list) == len(self.vsec_list) == len(self.isec_list) == self.num_cells
 
         if input_spike_scaler is None:
+            # self.input_spike_scaler = MinMaxScaler(feature_range=(0, 100))
             self.input_spike_scaler = StandardScaler()
             self.input_spike_scaler.fit(np.vstack(self.input_spike_list))
         else:
