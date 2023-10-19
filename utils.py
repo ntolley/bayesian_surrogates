@@ -118,99 +118,99 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
     return loss_dict
 
 #Helper function to pytorch train networks for decoding
-def train_validate_test_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, testing_generator,device, print_freq=10, early_stop=20):
-    train_loss_array = []
-    validation_loss_array = []
-    test_loss_array = []
-    # Loop over epochs
-    min_validation_loss, min_validation_std, min_validation_counter, min_validation_epoch = np.inf, np.inf, 0, 0
-    for epoch in range(max_epochs):
-        #___Train model___
-        model.train()
-        train_batch_loss = []
-        validation_batch_loss = []
-        test_batch_loss = []
-        for batch_x, batch_y in training_generator:
-            optimizer.zero_grad() # Clears existing gradients from previous epoch
-            batch_x = batch_x.float().to(device)
-            batch_y = batch_y.float().to(device)
-            output = model(batch_x)
-            train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
-            # train_loss = criterion(output[:,:,:], batch_y[:,:,:])
-            train_loss.backward() # Does backpropagation and calculates gradients
-            optimizer.step() # Updates the weights accordingly
+# def train_validate_test_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, testing_generator,device, print_freq=10, early_stop=20):
+#     train_loss_array = []
+#     validation_loss_array = []
+#     test_loss_array = []
+#     # Loop over epochs
+#     min_validation_loss, min_validation_std, min_validation_counter, min_validation_epoch = np.inf, np.inf, 0, 0
+#     for epoch in range(max_epochs):
+#         #___Train model___
+#         model.train()
+#         train_batch_loss = []
+#         validation_batch_loss = []
+#         test_batch_loss = []
+#         for batch_x, batch_y in training_generator:
+#             optimizer.zero_grad() # Clears existing gradients from previous epoch
+#             batch_x = batch_x.float().to(device)
+#             batch_y = batch_y.float().to(device)
+#             output = model(batch_x)
+#             train_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+#             # train_loss = criterion(output[:,:,:], batch_y[:,:,:])
+#             train_loss.backward() # Does backpropagation and calculates gradients
+#             optimizer.step() # Updates the weights accordingly
 
-            train_batch_loss.append(train_loss.item())
+#             train_batch_loss.append(train_loss.item())
         
-        train_loss_array.append(train_batch_loss)
+#         train_loss_array.append(train_batch_loss)
 
-        #___Evaluate Model___
-        with torch.no_grad():
-            model.eval()
-            #Generate validation set predictions
-            for batch_x, batch_y in validation_generator:
-                batch_x = batch_x.float().to(device)
-                batch_y = batch_y.float().to(device)
-                output = model(batch_x)
-                validation_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+#         #___Evaluate Model___
+#         with torch.no_grad():
+#             model.eval()
+#             #Generate validation set predictions
+#             for batch_x, batch_y in validation_generator:
+#                 batch_x = batch_x.float().to(device)
+#                 batch_y = batch_y.float().to(device)
+#                 output = model(batch_x)
+#                 validation_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
 
-                validation_batch_loss.append(validation_loss.item())
+#                 validation_batch_loss.append(validation_loss.item())
 
-            validation_loss_array.append(validation_batch_loss)
+#             validation_loss_array.append(validation_batch_loss)
 
-            #Generate test set predictions
-            for batch_x, batch_y in testing_generator:
-                batch_x = batch_x.float().to(device)
-                batch_y = batch_y.float().to(device)
-                output = model(batch_x)
-                test_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
+#             #Generate test set predictions
+#             for batch_x, batch_y in testing_generator:
+#                 batch_x = batch_x.float().to(device)
+#                 batch_y = batch_y.float().to(device)
+#                 output = model(batch_x)
+#                 test_loss = criterion(output[:,-1,:], batch_y[:,-1,:])
 
-                test_batch_loss.append(test_loss.item())
+#                 test_batch_loss.append(test_loss.item())
 
-            test_loss_array.append(test_batch_loss)
+#             test_loss_array.append(test_batch_loss)
 
-        #Compute average loss on batch
-        train_epoch_loss = np.mean(train_batch_loss)
-        train_epoch_std = np.std(train_batch_loss)
-        validation_epoch_loss = np.mean(validation_batch_loss)
-        validation_epoch_std = np.std(validation_batch_loss)
-        test_epoch_loss = np.mean(test_batch_loss)
-        test_epoch_std = np.std(test_batch_loss)
+#         #Compute average loss on batch
+#         train_epoch_loss = np.mean(train_batch_loss)
+#         train_epoch_std = np.std(train_batch_loss)
+#         validation_epoch_loss = np.mean(validation_batch_loss)
+#         validation_epoch_std = np.std(validation_batch_loss)
+#         test_epoch_loss = np.mean(test_batch_loss)
+#         test_epoch_std = np.std(test_batch_loss)
 
-       #Check if validation loss reaches minimum 
-        if validation_epoch_loss < min_validation_loss:
-            print('*',end='')
-            min_validation_loss = np.copy(validation_epoch_loss)
-            min_validation_std = np.copy(validation_epoch_std)
-            min_validation_counter = 0
-            min_validation_epoch = np.copy(epoch+1)
+#        #Check if validation loss reaches minimum 
+#         if validation_epoch_loss < min_validation_loss:
+#             print('*',end='')
+#             min_validation_loss = np.copy(validation_epoch_loss)
+#             min_validation_std = np.copy(validation_epoch_std)
+#             min_validation_counter = 0
+#             min_validation_epoch = np.copy(epoch+1)
 
-            min_train_loss = np.copy(train_epoch_loss)
-            min_train_std = np.copy(train_epoch_std)
-            min_test_loss = np.copy(test_epoch_loss)
-            min_test_std = np.copy(test_epoch_std)
+#             min_train_loss = np.copy(train_epoch_loss)
+#             min_train_std = np.copy(train_epoch_std)
+#             min_test_loss = np.copy(test_epoch_loss)
+#             min_test_std = np.copy(test_epoch_std)
 
 
-        else:
-            print('.',end='')
-            min_validation_counter += 1
+#         else:
+#             print('.',end='')
+#             min_validation_counter += 1
 
-        #Print Loss Scores
-        if (epoch+1)%print_freq == 0:
-            print('')
-            print('Epoch: {}/{} ...'.format(epoch+1, max_epochs), end=' ')
-            print('Train Loss: {:.2f}  ... Validation Loss: {:.2f} ... Test Loss: {:.2f}'.format(train_epoch_loss, validation_epoch_loss, test_epoch_loss))
+#         #Print Loss Scores
+#         if (epoch+1)%print_freq == 0:
+#             print('')
+#             print('Epoch: {}/{} ...'.format(epoch+1, max_epochs), end=' ')
+#             print('Train Loss: {:.2f}  ... Validation Loss: {:.2f} ... Test Loss: {:.2f}'.format(train_epoch_loss, validation_epoch_loss, test_epoch_loss))
         
-        #Early stop if no validation improvement over set number of epochs
-        if min_validation_counter > early_stop:
-            print(' Early Stop; Min Epoch: {}'.format(min_validation_epoch))
-            break
+#         #Early stop if no validation improvement over set number of epochs
+#         if min_validation_counter > early_stop:
+#             print(' Early Stop; Min Epoch: {}'.format(min_validation_epoch))
+#             break
 
-    loss_dict = {'min_validation_loss':min_validation_loss, 'min_validation_std':min_validation_std,'min_validation_epoch':min_validation_epoch, 
-    'min_train_loss':min_train_loss, 'min_train_std':min_train_std,
-    'min_test_loss':min_test_loss, 'min_test_std':min_test_std,
-    'train_loss_array':train_loss_array, 'validation_loss_array':validation_loss_array, 'test_loss_array':test_loss_array, 'max_epochs':max_epochs}
-    return loss_dict
+#     loss_dict = {'min_validation_loss':min_validation_loss, 'min_validation_std':min_validation_std,'min_validation_epoch':min_validation_epoch, 
+#     'min_train_loss':min_train_loss, 'min_train_std':min_train_std,
+#     'min_test_loss':min_test_loss, 'min_test_std':min_test_std,
+#     'train_loss_array':train_loss_array, 'validation_loss_array':validation_loss_array, 'test_loss_array':test_loss_array, 'max_epochs':max_epochs}
+#     return loss_dict
 
 #Vectorized correlation coefficient of two matrices on specified dimension
 def matrix_corr(x, y, axis=0):
@@ -237,6 +237,7 @@ def evaluate_model(model, generator, device):
     y_pred = y_pred_tensor.detach().cpu().numpy()
     return y_pred
 
+
 class CellType_Dataset(torch.utils.data.Dataset):
     #'Characterizes a dataset for PyTorch'
     def __init__(self, net, cell_type='L5_pyramidal', data_step_size=1,
@@ -247,7 +248,7 @@ class CellType_Dataset(torch.utils.data.Dataset):
         self.cell_type = cell_type
         self.num_cells = len(network_data.net.gid_ranges[self.cell_type])
         self.data_step_size = data_step_size
-        self.window_size = window_size
+        self.window_size = window_size + 1  # Used to offset the target by 1 timestep
         self.device = device
 
         self.vsec_names = network_data.neuron_data_dict[list(net.gid_ranges[cell_type])[0]].vsec_names
@@ -257,7 +258,6 @@ class CellType_Dataset(torch.utils.data.Dataset):
         assert len(self.input_spike_list) == len(self.vsec_list) == len(self.isec_list) == self.num_cells
 
         if input_spike_scaler is None:
-            # self.input_spike_scaler = MinMaxScaler(feature_range=(0, 100))
             self.input_spike_scaler = StandardScaler()
             self.input_spike_scaler.fit(np.vstack(self.input_spike_list))
         else:
@@ -276,24 +276,33 @@ class CellType_Dataset(torch.utils.data.Dataset):
             self.isec_scaler = isec_scaler
  
 
-        self.input_spike_unfolded, self.vsec_unfolded, self.isec_unfolded = self.unfold_data()
-        
-        # X is one step behind y
-        self.X_tensor = self.input_spike_unfolded[:, :-1, :]
-        self.y_tensor = self.vsec_unfolded[:, 1:, :]
-        assert self.X_tensor.shape[0] == self.y_tensor.shape[0]
-        self.num_samples = self.X_tensor.shape[0]
+        self.input_spike_list, self.vsec_list, self.isec_list, self.slice_lookup = self.transform_data()
+        self.num_samples = len(self.input_spike_list) * (self.input_spike_list[0].shape[0] - self.window_size)
 
-        self.X_tensor = self.X_tensor.float().to(self.device)
-        self.y_tensor = self.y_tensor.float().to(self.device)
+        assert self.num_samples == len(self.slice_lookup)
 
+        self.X_data = torch.concat(self.input_spike_list, dim=0)
+        self.y_data = torch.concat(self.vsec_list, dim=0)
     
     def __len__(self):
         #'Denotes the total number of samples'
         return self.num_samples
 
     def __getitem__(self, slice_index):
-        return self.X_tensor[slice_index,:,:], self.y_tensor[slice_index,:,:]
+        data_index = self.slice_lookup[slice_index].astype(int)
+        if np.isscalar(data_index):
+            data_index = np.array([data_index])
+
+        
+        X, y = list(), list()
+        for idx in data_index:
+            X.append(self.X_data[idx - self.window_size: idx, :])
+            y.append(self.y_data[idx - self.window_size: idx, :])
+
+        X = torch.stack(X, dim=0)
+        y = torch.stack(y, dim=0)
+        
+        return X[:, :-1, :].squeeze(dim=0), y[:, 1:, :].squeeze(dim=0)
     
 
     def process_data(self, network_data):
@@ -306,32 +315,36 @@ class CellType_Dataset(torch.utils.data.Dataset):
         
         return input_spike_list, vsec_list, isec_list
 
-    def unfold_data(self):
-        input_spike_unfold_list, vsec_unfold_list, isec_unfold_list = list(), list(), list()
+    def transform_data(self):
+        sim_len = self.input_spike_list[0].shape[0]
+        input_spike_transform_list, vsec_transform_list, isec_transform_list = list(), list(), list()
+
+        slice_lookup = list()
         for idx in range(self.num_cells):
-            # Input spikes
             input_spike_transformed = self.input_spike_scaler.transform(self.input_spike_list[idx])
             input_spike_transformed = torch.from_numpy(input_spike_transformed)
-            input_spike_unfolded = input_spike_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
-            input_spike_unfold_list.append(input_spike_unfolded)
+            input_spike_transform_list.append(input_spike_transformed)
 
-            # Voltages
+
             vsec_transformed = self.vsec_scaler.transform(self.vsec_list[idx])
             vsec_transformed = torch.from_numpy(vsec_transformed)
-            vsec_unfolded = vsec_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
-            vsec_unfold_list.append(vsec_unfolded)
+            vsec_transform_list.append(vsec_transformed)
 
-            # Currents
             isec_transformed = self.isec_scaler.transform(self.isec_list[idx])
             isec_transformed = torch.from_numpy(isec_transformed)
-            isec_unfolded = isec_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
-            isec_unfold_list.append(isec_unfolded)
+            isec_transform_list.append(isec_transformed)
 
-        input_spike_unfolded = torch.concat(input_spike_unfold_list, dim=0)
-        vsec_unfolded = torch.concat(vsec_unfold_list, dim=0)
-        isec_unfolded = torch.concat(isec_unfold_list, dim=0)
+            sim_len = input_spike_transformed.shape[0]
+            assert sim_len == isec_transformed.shape[0] == vsec_transformed.shape[0] == isec_transformed.shape[0]
 
-        return input_spike_unfolded, vsec_unfolded, isec_unfolded
+            slice_lookup_temp = np.arange(self.window_size, sim_len, self.data_step_size) + (idx * sim_len)
+            slice_lookup.extend(slice_lookup_temp)
+
+        slice_lookup = np.array(slice_lookup)
+
+        return input_spike_transform_list, vsec_transform_list, isec_transform_list, slice_lookup
+
+
         
 
 class SingleNeuron_Data:
@@ -442,3 +455,99 @@ class Network_Data:
                         input_spike_idx = self.neuron_data_dict[target_gid].isec_name_lookup[input_spike_name]
                         self.input_spike_dict[target_gid][input_spike_idx, :] += conn_spikes
             
+
+class CellType_Dataset_Fast(torch.utils.data.Dataset):
+    #'Characterizes a dataset for PyTorch'
+    def __init__(self, net, cell_type='L5_pyramidal', data_step_size=1,
+                 window_size=100, input_spike_scaler=None, vsec_scaler=None, isec_scaler=None,
+                 device='cpu'):
+        
+        network_data = Network_Data(net)
+        self.cell_type = cell_type
+        self.num_cells = len(network_data.net.gid_ranges[self.cell_type])
+        self.data_step_size = data_step_size
+        self.window_size = window_size
+        self.device = device
+
+        self.vsec_names = network_data.neuron_data_dict[list(net.gid_ranges[cell_type])[0]].vsec_names
+        self.isec_names = network_data.neuron_data_dict[list(net.gid_ranges[cell_type])[0]].isec_names
+
+        self.input_spike_list, self.vsec_list, self.isec_list = self.process_data(network_data)
+        assert len(self.input_spike_list) == len(self.vsec_list) == len(self.isec_list) == self.num_cells
+
+        if input_spike_scaler is None:
+            # self.input_spike_scaler = MinMaxScaler(feature_range=(0, 100))
+            self.input_spike_scaler = StandardScaler()
+            self.input_spike_scaler.fit(np.vstack(self.input_spike_list))
+        else:
+            self.input_spike_scaler = input_spike_scaler
+        
+        if vsec_scaler is None:
+            self.vsec_scaler = StandardScaler()
+            self.vsec_scaler.fit(np.vstack(self.vsec_list))
+        else:
+            self.vsec_scaler = vsec_scaler
+        
+        if isec_scaler is None:
+            self.isec_scaler = StandardScaler()
+            self.isec_scaler.fit(np.vstack(self.isec_list))
+        else:
+            self.isec_scaler = isec_scaler
+ 
+
+        self.input_spike_unfolded, self.vsec_unfolded, self.isec_unfolded = self.unfold_data()
+        
+        # X is one step behind y
+        self.X_tensor = self.input_spike_unfolded[:, :-1, :]
+        self.y_tensor = self.vsec_unfolded[:, 1:, :]
+        assert self.X_tensor.shape[0] == self.y_tensor.shape[0]
+        self.num_samples = self.X_tensor.shape[0]
+
+        self.X_tensor = self.X_tensor.float().to(self.device)
+        self.y_tensor = self.y_tensor.float().to(self.device)
+
+    
+    def __len__(self):
+        #'Denotes the total number of samples'
+        return self.num_samples
+
+    def __getitem__(self, slice_index):
+        return self.X_tensor[slice_index,:,:], self.y_tensor[slice_index,:,:]
+    
+
+    def process_data(self, network_data):
+        gid_list = network_data.net.gid_ranges[self.cell_type]
+        input_spike_list, vsec_list, isec_list = list(), list(), list()
+        for gid in gid_list:
+            input_spike_list.append(network_data.input_spike_dict[gid].T)
+            vsec_list.append(network_data.neuron_data_dict[gid].vsec_array.T)
+            isec_list.append(network_data.neuron_data_dict[gid].isec_array.T)
+        
+        return input_spike_list, vsec_list, isec_list
+
+    def unfold_data(self):
+        input_spike_unfold_list, vsec_unfold_list, isec_unfold_list = list(), list(), list()
+        for idx in range(self.num_cells):
+            # Input spikes
+            input_spike_transformed = self.input_spike_scaler.transform(self.input_spike_list[idx])
+            input_spike_transformed = torch.from_numpy(input_spike_transformed)
+            input_spike_unfolded = input_spike_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
+            input_spike_unfold_list.append(input_spike_unfolded)
+
+            # Voltages
+            vsec_transformed = self.vsec_scaler.transform(self.vsec_list[idx])
+            vsec_transformed = torch.from_numpy(vsec_transformed)
+            vsec_unfolded = vsec_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
+            vsec_unfold_list.append(vsec_unfolded)
+
+            # Currents
+            isec_transformed = self.isec_scaler.transform(self.isec_list[idx])
+            isec_transformed = torch.from_numpy(isec_transformed)
+            isec_unfolded = isec_transformed.unfold(0, self.window_size + 1, self.data_step_size).transpose(1,2)
+            isec_unfold_list.append(isec_unfolded)
+
+        input_spike_unfolded = torch.concat(input_spike_unfold_list, dim=0)
+        vsec_unfolded = torch.concat(vsec_unfold_list, dim=0)
+        isec_unfolded = torch.concat(isec_unfold_list, dim=0)
+
+        return input_spike_unfolded, vsec_unfolded, isec_unfolded
