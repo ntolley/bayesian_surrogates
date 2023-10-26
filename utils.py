@@ -10,6 +10,8 @@ import multiprocessing
 from joblib import Parallel, delayed
 import pickle
 from hnn_core.cell import _get_gaussian_connection
+from hnn_core.network import _connection_probability
+from sbi import utils as sbi_utils
 
 
 
@@ -356,11 +358,22 @@ class SingleNeuron_Data:
         if self.cell_type in net.cell_types:
             self.is_cell = True
 
+            # Get dipole
+            if self.cell_type in ['L5_pyramidal', 'L2_pyramidal']:
+                dcell = net.cell_response.dcell[0][gid]
+            else:
+                dcell = np.zeros(len(net.cell_response.times))
+
             # Get voltages
             vsec_list, vsec_names = list(), list()
             for sec_name, vsec in net.cell_response.vsec[0][gid].items():
                 vsec_list.append(vsec)
                 vsec_names.append(sec_name)
+
+            # Add dipole to end of voltage list
+            vsec_names.append('dipole')
+            vsec_list.append(dcell)
+
             self.vsec_names = vsec_names
             self.vsec_array = np.array(vsec_list)
 
@@ -551,3 +564,95 @@ class CellType_Dataset_Fast(torch.utils.data.Dataset):
         isec_unfolded = torch.concat(isec_unfold_list, dim=0)
 
         return input_spike_unfolded, vsec_unfolded, isec_unfolded
+
+def linear_scale_forward(value, bounds, constrain_value=True):
+    """Scale value in range (0,1) to range bounds"""
+    if constrain_value:
+        assert np.all(value >= 0.0) and np.all(value <= 1.0)
+        
+    assert isinstance(bounds, tuple)
+    assert bounds[0] < bounds[1]
+    
+    return (bounds[0] + (value * (bounds[1] - bounds[0]))).astype(float)
+
+def linear_scale_array(value, bounds, constrain_value=True):
+    """Scale columns of array according to bounds"""
+    assert value.shape[1] == len(bounds)
+    return np.vstack(
+        [linear_scale_forward(value[:, idx], bounds[idx], constrain_value) for 
+         idx in range(len(bounds))]).T
+
+def log_scale_forward(value, bounds, constrain_value=True):
+    """log scale value in range (0,1) to range bounds in base 10"""
+    rescaled_value = linear_scale_forward(value, bounds, constrain_value)
+    
+    return 10**rescaled_value
+
+def log_scale_array(value, bounds, constrain_value=True):
+    """log scale columns of array according to bounds in base 10"""
+    assert value.shape[1] == len(bounds)
+    return np.vstack(
+        [log_scale_forward(value[:, idx], bounds[idx], constrain_value) for 
+         idx in range(len(bounds))]).T
+
+class UniformPrior(sbi_utils.BoxUniform):
+    """Prior distribution object that generates uniform sample on range (0,1)"""
+    def __init__(self, parameters):
+        """
+        Parameters
+        ----------
+        parameters: list of str
+            List of parameter names for prior distribution
+        """
+        self.parameters = parameters
+        low = len(parameters)*[0]
+        high = len(parameters)*[1]
+        super().__init__(low=torch.tensor(low, dtype=torch.float32),
+                         high=torch.tensor(high, dtype=torch.float32))
+
+def beta_tuning_param_function(net, theta_dict):
+    conn_type_list = {'EI_connections': 'EI', 'EE_connections': 'EE', 
+                      'II_connections': 'II', 'IE_connections': 'IE'}
+    
+    seed_rng = np.random.default_rng(theta_dict['theta_extra']['sample_idx'])
+    seed_array = seed_rng.integers(10e5, size=100)
+
+    seed_count = 0
+    for conn_type_name, conn_suffix in conn_type_list.items():
+        conn_prob_name = f'{conn_suffix}_prob'
+        conn_gscale_name = f'{conn_suffix}_gscale'
+        
+        conn_indices = theta_dict['theta_extra'][conn_type_name]
+        probability = theta_dict[conn_prob_name]
+        gscale = theta_dict[conn_gscale_name]
+        
+        for conn_idx in conn_indices:
+            # Prune connections using internal connection_probability function
+            _connection_probability(
+                net.connectivity[conn_idx], probability=probability, conn_seed=seed_array[seed_count])
+            net.connectivity[conn_idx]['probability'] = probability
+            net.connectivity[conn_idx]['nc_dict']['A_weight'] *= gscale
+            seed_count = seed_count + 1
+
+    for conn_idx in range(len(net.connectivity)):
+        net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['theta_extra']['lamtha']          
+        
+    rate = 10
+    # Add Poisson drives
+    weights_ampa_d1 = {'L2_pyramidal': theta_dict['L2e_distal'], 'L5_pyramidal': theta_dict['L5e_distal'],
+                       'L2_basket': theta_dict['L2i_distal']}
+    rates_d1 = {'L2_pyramidal': rate, 'L5_pyramidal': rate, 'L2_basket': rate}
+
+    net.add_poisson_drive(
+        name='distal', tstart=0, tstop=None, rate_constant=rates_d1, location='distal', n_drive_cells='n_cells',
+        cell_specific=True, weights_ampa=weights_ampa_d1, weights_nmda=None, space_constant=1e50,
+        synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-1], conn_seed=seed_array[-2])
+
+    weights_ampa_p1 = {'L2_pyramidal': theta_dict['L2e_proximal'], 'L5_pyramidal': theta_dict['L5e_proximal'],
+                       'L2_basket': theta_dict['L2i_proximal'], 'L5_basket': theta_dict['L5i_proximal']}
+    rates_p1 = {'L2_pyramidal': rate, 'L5_pyramidal': rate, 'L2_basket': rate, 'L5_basket': rate}
+
+    net.add_poisson_drive(
+        name='proximal', tstart=0, tstop=None, rate_constant=rates_p1, location='proximal', n_drive_cells='n_cells',
+        cell_specific=True, weights_ampa=weights_ampa_p1, weights_nmda=None, space_constant=1e50,
+        synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-3], conn_seed=seed_array[-4])
