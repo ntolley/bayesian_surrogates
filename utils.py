@@ -244,9 +244,9 @@ class CellType_Dataset(torch.utils.data.Dataset):
     #'Characterizes a dataset for PyTorch'
     def __init__(self, net, cell_type='L5_pyramidal', data_step_size=1,
                  window_size=100, input_spike_scaler=None, vsec_scaler=None, isec_scaler=None,
-                 device='cpu'):
+                 soma_filter=False, device='cpu'):
         
-        network_data = Network_Data(net)
+        network_data = Network_Data(net, soma_filter=soma_filter)
         self.cell_type = cell_type
         self.num_cells = len(network_data.net.gid_ranges[self.cell_type])
         self.data_step_size = data_step_size
@@ -351,28 +351,28 @@ class CellType_Dataset(torch.utils.data.Dataset):
 
 class SingleNeuron_Data:
     #'Characterizes a dataset for PyTorch'
-    def __init__(self, net, gid):
+    def __init__(self, net, gid, soma_filter=False):
         self.gid = gid
         self.cell_type = net.gid_to_type(self.gid)
 
         if self.cell_type in net.cell_types:
             self.is_cell = True
 
-            # Get dipole
-            if self.cell_type in ['L5_pyramidal', 'L2_pyramidal']:
-                dcell = net.cell_response.dcell[0][gid]
-            else:
-                dcell = np.zeros(len(net.cell_response.times))
-
             # Get voltages
-            vsec_list, vsec_names = list(), list()
-            for sec_name, vsec in net.cell_response.vsec[0][gid].items():
-                vsec_list.append(vsec)
-                vsec_names.append(sec_name)
+            if soma_filter == True:
+                vsec_list = [net.cell_response.vsec[0][gid]['soma']]
+                vsec_names = ['soma']
+            elif soma_filter == False:
+                vsec_list, vsec_names = list(), list()
+                for sec_name, vsec in net.cell_response.vsec[0][gid].items():
+                    vsec_list.append(vsec)
+                    vsec_names.append(sec_name)
 
             # Add dipole to end of voltage list
-            vsec_names.append('dipole')
-            vsec_list.append(dcell)
+            if self.cell_type in ['L5_pyramidal', 'L2_pyramidal']:
+                dcell = net.cell_response.dcell[0][gid]
+                vsec_names.append('dipole')
+                vsec_list.append(dcell)
 
             self.vsec_names = vsec_names
             self.vsec_array = np.array(vsec_list)
@@ -410,14 +410,14 @@ class SingleNeuron_Data:
 
 
 class Network_Data:
-    def __init__(self, net):
+    def __init__(self, net, soma_filter=False):
         self.net = net
         self.neuron_data_dict = dict()
         self.input_spike_dict = dict()
         
         for cell_type, gid_list in net.gid_ranges.items():
             for gid in gid_list:
-                self.neuron_data_dict[gid] = SingleNeuron_Data(net, gid)
+                self.neuron_data_dict[gid] = SingleNeuron_Data(net, gid, soma_filter=soma_filter)
 
                 # Initialize blank arrays for spikes recieved by each cell
                 if cell_type in net.cell_types:
@@ -473,9 +473,9 @@ class CellType_Dataset_Fast(torch.utils.data.Dataset):
     #'Characterizes a dataset for PyTorch'
     def __init__(self, net, cell_type='L5_pyramidal', data_step_size=1,
                  window_size=100, input_spike_scaler=None, vsec_scaler=None, isec_scaler=None,
-                 device='cpu'):
+                 soma_filter=False, device='cpu'):
         
-        network_data = Network_Data(net)
+        network_data = Network_Data(net, soma_filter=soma_filter)
         self.cell_type = cell_type
         self.num_cells = len(network_data.net.gid_ranges[self.cell_type])
         self.data_step_size = data_step_size
