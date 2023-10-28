@@ -127,10 +127,20 @@ for dataset_type in dataset_type_list:
 
         # Ensure simulations are subthreshold
         if dataset_type == 'subthreshold':
-            sim_indices = np.where(dipole_array.max(axis=1) < 1e-3)[0]
+            # Threshold for detecting spikes in dipole may need to be hand tuned based on number of cells
+            sim_indices = np.where(dipole_array.max(axis=1) < 2e-3)[0]
             len(sim_indices)
         else:
             sim_indices = np.arange(100)
+
+        # Network size for different cell types
+        if cell_type == 'L2_basket' or cell_type == 'L5_basket':
+            hidden_dim = 8
+            n_layers = 2
+        else:
+            hidden_dim = 64
+            n_layers = 5
+
 
         # Set up training and validation datasets
         num_sims = len(sim_indices)
@@ -168,7 +178,8 @@ for dataset_type in dataset_type_list:
 
 
         # Initialize and train model
-        model = utils.model_celltype_lstm(input_size=input_size, output_size=output_size, device=device).to(device)
+        model = utils.model_celltype_lstm(input_size=input_size, output_size=output_size,
+                                          hidden_dim=hidden_dim, n_layers=n_layers, device=device).to(device)
 
         if dataset_type == 'suprathreshold':
             model.load_state_dict(torch.load(f'subthreshold_models/{cell_type}_subthreshold_model.pt'))
@@ -177,7 +188,7 @@ for dataset_type in dataset_type_list:
 
         lr = 0.01
         weight_decay = 0.0
-        max_epochs = 6
+        max_epochs = 1000
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
