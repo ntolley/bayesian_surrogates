@@ -489,8 +489,8 @@ class CellType_Dataset_Fast(torch.utils.data.Dataset):
         assert len(self.input_spike_list) == len(self.vsec_list) == len(self.isec_list) == self.num_cells
 
         if input_spike_scaler is None:
-            # self.input_spike_scaler = MinMaxScaler(feature_range=(0, 100))
-            self.input_spike_scaler = StandardScaler()
+            self.input_spike_scaler = MinMaxScaler(feature_range=(0, 1))
+            # self.input_spike_scaler = StandardScaler()
             self.input_spike_scaler.fit(np.vstack(self.input_spike_list))
         else:
             self.input_spike_scaler = input_spike_scaler
@@ -610,7 +610,7 @@ class UniformPrior(sbi_utils.BoxUniform):
         super().__init__(low=torch.tensor(low, dtype=torch.float32),
                          high=torch.tensor(high, dtype=torch.float32))
 
-def beta_tuning_param_function(net, theta_dict):
+def beta_tuning_param_function(net, theta_dict, rate=10):
     conn_type_list = {'EI_connections': 'EI', 'EE_connections': 'EE', 
                       'II_connections': 'II', 'IE_connections': 'IE'}
     
@@ -637,7 +637,7 @@ def beta_tuning_param_function(net, theta_dict):
     for conn_idx in range(len(net.connectivity)):
         net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['theta_extra']['lamtha']          
         
-    rate = 10
+    # rate = 10
     # Add Poisson drives
     weights_ampa_d1 = {'L2_pyramidal': theta_dict['L2e_distal'], 'L5_pyramidal': theta_dict['L5e_distal'],
                        'L2_basket': theta_dict['L2i_distal']}
