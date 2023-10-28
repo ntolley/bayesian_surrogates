@@ -33,7 +33,7 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     hnn_core_root = op.dirname(hnn_core.__file__)
     params_fname = op.join(hnn_core_root, 'param', 'default.json')
     params = read_params(params_fname)
-    params.update({'N_pyr_x': 3, 'N_pyr_y': 3})
+    params.update({'N_pyr_x': 5, 'N_pyr_y': 5})
     
     net = calcium_model(params)
     if suffix != 'connected':

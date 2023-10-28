@@ -177,7 +177,7 @@ for dataset_type in dataset_type_list:
 
         lr = 0.01
         weight_decay = 0.0
-        max_epochs = 3
+        max_epochs = 6
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
@@ -185,4 +185,6 @@ for dataset_type in dataset_type_list:
         loss_dict = train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, 5, 10)
 
         torch.save(model.state_dict(), f'{dataset_type}_models/{cell_type}_{dataset_type}_model.pt')
+        with open(f'{dataset_type}_models/{cell_type}_{dataset_type}_loss_dict.pkl', 'wb') as f:
+            dill.dump(loss_dict, f)
 
