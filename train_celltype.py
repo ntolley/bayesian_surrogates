@@ -114,7 +114,8 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
 
 
 dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
-cell_type_list = ['L2_basket', 'L5_basket', 'L2_pyramidal', 'L5_pyramidal']
+cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
+
 
 for dataset_type in dataset_type_list:
     for cell_type in cell_type_list:

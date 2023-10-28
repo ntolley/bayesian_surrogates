@@ -731,3 +731,123 @@ class model_celltype_lstm(nn.Module):
     def get_kernel(self, t_vec, tau1=10, tau2=20):
         G = tau2/(tau2-tau1)*(-torch.exp(-t_vec/tau1) + torch.exp(-t_vec/tau2))
         return G
+
+
+#LSTM/GRU architecture for decoding
+class model_network_custom_weights(nn.Module):
+    def __init__(self, net, L5Pyr_model, training_set, n_L5Pyr=100, n_inhib=30, soma_idx=0, device='cuda:0', bidirectional=False):
+        super(model_network_custom_weights, self).__init__()
+        self.net = net
+        self.L5Pyr_model = L5Pyr_model
+        self.training_set = training_set.datasets[0]
+        self.device = device
+
+        self.n_L5Pyr = n_L5Pyr
+        self.n_inhib = n_inhib
+        # self.n_inhib = 0
+
+        self.L5Pyr_gids = torch.tensor(list(range(0,n_L5Pyr)))
+        self.inhib_gids = torch.tensor(list(range(n_L5Pyr, n_L5Pyr+n_inhib)))
+        self.n_cells = n_L5Pyr + n_inhib
+
+        self.drive_target_gids = None
+
+
+        self.threshold = 100
+        self.soma_idx = soma_idx  # index of soma compartment
+
+        self.prox_indices = get_drive_indices('proximal', 'ampa', self.training_set, self.net)
+        self.inhib_indices = get_drive_indices('soma', 'gabaa', self.training_set, self.net)
+
+        self.conn_mean = torch.tensor([10.0, 10.0, 10.0, 10.0])
+        self.conn_std = torch.tensor([1.0, 1.0, 1.0, 1.0])
+
+        weight_matrix =  self.init_weight_matrix().detach().requires_grad_(True)
+        # weight_matrix = torch.zeros((self.n_cells, self.L5Pyr_model.input_size, self.n_cells)).float().to(self.device)
+    
+        self.weight_matrix = nn.Parameter(weight_matrix).detach().to(self.device).requires_grad_(True)
+
+    def forward(self, input_spikes_tensor):
+        pred_y = list()
+        hidden = self.L5Pyr_model.init_hidden(input_spikes_tensor.size(0))
+        
+        for time_idx in range(self.L5Pyr_model.kernel_size, input_spikes_tensor.size(1)-1):
+            batch_x = input_spikes_tensor[:, time_idx-self.L5Pyr_model.kernel_size:time_idx, :].to(self.device)
+
+            out, hidden = self.L5Pyr_model(batch_x, hidden)
+            pred_y.append(out[:,-1, self.soma_idx])
+
+            if time_idx > self.L5Pyr_model.kernel_size:
+                spike_mask = ((pred_y[-1][:] > self.threshold) & (pred_y[-2][:] < self.threshold))
+            
+                input_spikes_tensor[:, time_idx+1, :] += torch.matmul(self.weight_matrix.clamp(0, 10), spike_mask.float())
+
+        pred_y = torch.stack(pred_y)
+        return pred_y
+
+
+    def init_weight_matrix(self):
+        weight_matrix = torch.zeros((self.n_cells, self.L5Pyr_model.input_size, self.n_cells)).float().to(self.device)
+
+        # EE
+        weight_matrix = self.random_weight_matrix(n_cells=self.n_cells, n_sec=self.L5Pyr_model.input_size, sec_indices=self.prox_indices,
+                                     src_size=self.n_L5Pyr, target_size=30, src_range=self.L5Pyr_gids, target_range=self.L5Pyr_gids,
+                                     weight_matrix=weight_matrix, mean_weight=self.conn_mean[0])
+       # EI
+        weight_matrix = self.random_weight_matrix(n_cells=self.n_cells, n_sec=self.L5Pyr_model.input_size, sec_indices=self.prox_indices,
+                                                src_size=self.n_L5Pyr, target_size=30, src_range=self.L5Pyr_gids, target_range=self.inhib_gids,
+                                                weight_matrix=weight_matrix, mean_weight=self.conn_mean[1])
+
+        # IE
+        weight_matrix = self.random_weight_matrix(n_cells=self.n_cells, n_sec=self.L5Pyr_model.input_size, sec_indices=self.inhib_indices,
+                                                src_size=self.n_inhib, target_size=100, src_range=self.inhib_gids, target_range=self.L5Pyr_gids,
+                                                weight_matrix=weight_matrix, mean_weight=self.conn_mean[2])
+
+        # II
+        weight_matrix = self.random_weight_matrix(n_cells=self.n_cells, n_sec=self.L5Pyr_model.input_size, sec_indices=self.inhib_indices,
+                                                src_size=self.n_inhib, target_size=30, src_range=self.inhib_gids, target_range=self.inhib_gids,
+                                                weight_matrix=weight_matrix, mean_weight=self.conn_mean[3])
+
+
+        return weight_matrix
+
+    def random_weight_matrix(self, n_cells, n_sec, sec_indices, src_size=100, target_size=100,
+                           src_range=None, target_range=None, mean_weight=5., weight_matrix=None):
+        if weight_matrix is None:
+            weight_matrix = torch.zeros((n_cells, n_sec, n_cells)).float()
+        
+        if src_range is None:
+            src_range = list(range(n_cells))
+
+        if target_range is None:
+            target_range = list(range(n_cells))
+
+        # src_gid_list = np.random.choice(src_range, size=src_size, replace=False)
+        src_probs = torch.ones(size=(len(src_range),))
+        src_indices = torch.multinomial(src_probs, num_samples=src_size, replacement=False)
+        src_gid_list = torch.index_select(src_range, dim=0, index=src_indices)
+
+        for src_gid in src_gid_list:
+            target_probs = torch.ones(size=(len(target_range),))
+            target_indices = torch.multinomial(target_probs, num_samples=target_size, replacement=False)
+            target_gid_list = torch.index_select(target_range, dim=0, index=target_indices)
+
+            for target_gid in target_gid_list:
+                weight_matrix[target_gid, sec_indices, src_gid] += torch.normal(mean=mean_weight, std=1.0)
+        return weight_matrix
+
+    # Create input spike train
+    def init_input_spikes(self, n_samples=1000):
+        input_spikes = torch.zeros((self.n_cells, n_samples + 1, len(self.training_set.isec_names)))
+
+        # prox_time_indices = np.arange(0, n_samples, 1000)  # 1 Hz input
+
+        self.drive_target_gids = np.random.choice(self.L5Pyr_gids, size=30, replace=False)
+        for gid in self.drive_target_gids:
+            prox_time_indices = np.random.choice(list(range(0, n_samples)), size=100, replace=False)
+            # prox_time_indices = torch.randint(0, n_samples, size=(100,), requires_grad=True, )
+            drive_weight = np.random.uniform(0, 10)
+            for isec_idx in self.prox_indices:
+                input_spikes[gid, prox_time_indices, isec_idx] = drive_weight
+
+        return input_spikes
