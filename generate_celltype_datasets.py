@@ -33,7 +33,7 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     hnn_core_root = op.dirname(hnn_core.__file__)
     params_fname = op.join(hnn_core_root, 'param', 'default.json')
     params = read_params(params_fname)
-    params.update({'N_pyr_x': 5, 'N_pyr_y': 5})
+    params.update({'N_pyr_x': 3, 'N_pyr_y': 3})
     
     net = calcium_model(params)
     if suffix != 'connected':
@@ -58,15 +58,15 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     beta_tuning_param_function(net, theta_dict, rate=rate)
     dpl = simulate_dipole(net, dt=0.5, tstop=1000, record_vsec='all', record_isec='all', record_dcell=True)
 
-    g = net.cell_response.plot_spikes_raster()
+    g = net.cell_response.plot_spikes_raster(show=False)
     g.savefig(f'datasets_{suffix}/raster_plots/raster_{sample_idx}.png')
     plt.close()
 
-    g = dpl[0].plot()
+    g = dpl[0].plot(show=False)
     g.savefig(f'datasets_{suffix}/dipole_plots/dipole_{sample_idx}.png')
     plt.close()
 
-    g = dpl[0].plot_psd(fmin=0, fmax=100)
+    g = dpl[0].plot_psd(fmin=0, fmax=100, show=False)
     g.savefig(f'datasets_{suffix}/psd_plots/psd_{sample_idx}.png')
     plt.close()
 

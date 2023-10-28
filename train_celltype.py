@@ -118,6 +118,7 @@ cell_type_list = ['L2_basket', 'L5_basket', 'L2_pyramidal', 'L5_pyramidal']
 
 for dataset_type in dataset_type_list:
     for cell_type in cell_type_list:
+        print('\n')
         print(f'___Training {dataset_type} {cell_type} model___')
 
         dipole_array = np.array(
@@ -141,10 +142,10 @@ for dataset_type in dataset_type_list:
 
 
         training_set = torch.utils.data.ConcatDataset(
-            [torch.load(f'datasets_{sim_indices}/training_data/{cell_type}_dataset_{idx}.pt') for
+            [torch.load(f'datasets_{dataset_type}/training_data/{cell_type}_dataset_{idx}.pt') for
              idx in training_indices])
         validation_set = torch.utils.data.ConcatDataset(
-            [torch.load(f'datasets_{sim_indices}/training_data/{cell_type}_dataset_{idx}.pt') for
+            [torch.load(f'datasets_{dataset_type}/training_data/{cell_type}_dataset_{idx}.pt') for
              idx in validation_indices])
 
         _, input_size = training_set[0][0].detach().cpu().numpy().shape
@@ -176,7 +177,7 @@ for dataset_type in dataset_type_list:
 
         lr = 0.01
         weight_decay = 0.0
-        max_epochs = 1000
+        max_epochs = 3
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 

@@ -656,3 +656,78 @@ def beta_tuning_param_function(net, theta_dict, rate=10):
         name='proximal', tstart=0, tstop=None, rate_constant=rates_p1, location='proximal', n_drive_cells='n_cells',
         cell_specific=True, weights_ampa=weights_ampa_p1, weights_nmda=None, space_constant=1e50,
         synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-3], conn_seed=seed_array[-4])
+
+#LSTM/GRU architecture for decoding
+class model_celltype_lstm(nn.Module):
+    def __init__(self, input_size, output_size, hidden_dim=64, n_layers=5, dropout=0.1, kernel_size=200, device='cuda:0', bidirectional=False):
+        super(model_celltype_lstm, self).__init__()
+
+        #multiplier based on bidirectional parameter
+        if bidirectional:
+            num_directions = 2
+        else:
+            num_directions = 1
+
+        # Defining some parameters
+        self.input_size = input_size
+        self.output_size = output_size
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers * num_directions
+        self.device = device
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        self.kernel_size = kernel_size
+
+        self.tau1_init, self.tau2_init = 10, 20
+
+        self.kernel_scale_init, self.kernel_offset_init = 10, -5
+
+        # LSTM Layer
+        # self.lstm = nn.LSTM(hidden_dim, hidden_dim, n_layers, batch_first=True, dropout=dropout)
+        self.lstm = nn.LSTM(input_size, hidden_dim, n_layers, batch_first=True, dropout=dropout)   
+
+        self.fc_input = nn.Sequential(
+            nn.Linear(input_size, self.hidden_dim),
+            nn.Tanh(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.Tanh()
+        )
+
+        self.fc_output = nn.Sequential(
+            nn.Tanh(),
+            nn.Linear(hidden_dim*num_directions, self.hidden_dim),
+            nn.Tanh(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.Linear(self.hidden_dim, self.output_size)
+
+        )
+    
+    def forward(self, x, hidden):
+        batch_size = x.size(0)
+        kernel = self.get_kernel(torch.arange(0, self.kernel_size, 1).to(self.device),
+                                tau1=self.tau1_init, tau2=self.tau2_init).float().flip(0)
+        kernel_product = kernel.tile(dims=(batch_size, self.input_size, 1)).transpose(1,2)
+
+        out = (kernel_product * x).sum(dim=1).unsqueeze(1)
+        # print(out.shape)
+
+        # out = self.fc_input(out.contiguous())
+        out, hidden = self.lstm(out, hidden)
+        out = out.contiguous()
+        out = self.fc_output(out)
+            
+        return out, hidden
+    
+    def init_hidden(self, batch_size):
+        # This method generates the first hidden state of zeros which we'll use in the forward pass
+        weight = next(self.parameters()).data.to(self.device)
+
+        # LSTM cell initialization
+        hidden = (weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(self.device),
+                      weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(self.device))
+    
+        return hidden
+
+    def get_kernel(self, t_vec, tau1=10, tau2=20):
+        G = tau2/(tau2-tau1)*(-torch.exp(-t_vec/tau1) + torch.exp(-t_vec/tau2))
+        return G
