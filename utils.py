@@ -756,8 +756,8 @@ class model_network_custom_weights(nn.Module):
         self.threshold = 100
         self.soma_idx = soma_idx  # index of soma compartment
 
-        self.prox_indices = get_drive_indices('proximal', 'ampa', self.training_set, self.net)
-        self.inhib_indices = get_drive_indices('soma', 'gabaa', self.training_set, self.net)
+        self.prox_indices = self.get_drive_indices('proximal', 'ampa', self.training_set, self.net)
+        self.inhib_indices = self.get_drive_indices('soma', 'gabaa', self.training_set, self.net)
 
         self.conn_mean = torch.tensor([10.0, 10.0, 10.0, 10.0])
         self.conn_std = torch.tensor([1.0, 1.0, 1.0, 1.0])
@@ -851,3 +851,13 @@ class model_network_custom_weights(nn.Module):
                 input_spikes[gid, prox_time_indices, isec_idx] = drive_weight
 
         return input_spikes
+
+    def get_drive_indices(drive_name, receptor, training_set, net):
+        if drive_name == 'soma':
+            drive_loc = ['soma']
+        else:
+            drive_loc = net.cell_types['L5_pyramidal'].sect_loc[drive_name]
+        syn_names = [f'{loc}_{receptor}' for loc in drive_loc]
+        syn_indices = np.where(np.in1d(training_set.isec_names, syn_names))[0]
+
+        return syn_indices
