@@ -408,14 +408,16 @@ class SingleNeuron_Data:
         return spikes_binned
         
 
-
 class Network_Data:
     def __init__(self, net, soma_filter=False):
         self.net = net
+        self.dt = net.cell_response.times[1] - net.cell_response.times[0]
         self.neuron_data_dict = dict()
         self.input_spike_dict = dict()
         
+        self.connectivity_dict = dict()
         for cell_type, gid_list in net.gid_ranges.items():
+
             for gid in gid_list:
                 self.neuron_data_dict[gid] = SingleNeuron_Data(net, gid, soma_filter=soma_filter)
 
@@ -423,6 +425,13 @@ class Network_Data:
                 if cell_type in net.cell_types:
                     self.input_spike_dict[gid] = np.zeros(self.neuron_data_dict[gid].isec_array.shape)
 
+            # Initialize blank arrays for connectivity
+            if cell_type in net.cell_types:
+                input_size = self.neuron_data_dict[gid].isec_array.shape[0]  # Just need first cell for num inputs
+                # Dictionary indexed by target type, entry is (num_targets, num_inputs, num_sources) shape matrix
+                self.connectivity_dict[cell_type] = np.zeros((len(net.gid_ranges[cell_type]), input_size, net._n_gids))
+
+        self.delay_matrix = np.zeros((net._n_gids, net._n_cells))
         for conn in net.connectivity:
             for src_gid, target_gid_list in conn['gid_pairs'].items():
                 src_type = conn['src_type']
@@ -437,7 +446,6 @@ class Network_Data:
                     src_pos = src_pos_list[0]
 
                 # Loop through all target gids and append spikes to appropriate array
-                # **TODO** - need to add delay calculation
                 for target_gid in target_gid_list:
                     conn_spikes = self.neuron_data_dict[src_gid].spikes_binned
 
@@ -455,6 +463,15 @@ class Network_Data:
                     weight, delay = _get_gaussian_connection(
                         src_pos, target_pos, conn['nc_dict'], inplane_distance=net._inplane_distance)
 
+                    delay_samples = int(round(delay / self.dt))
+                    if delay_samples == 0:
+                        delay_samples = 1 # Can only deliver a spike at least 1 time step in the future
+
+                    # Add delay to delay matrix
+                    self.delay_matrix[src_gid, target_gid] = delay                    
+
+                    # Delay spikes by delay_samples
+                    # conn_spikes = np.concatenate([np.zeros((delay_samples,)), conn_spikes])[delay_samples:]
                     conn_spikes *= weight
 
                     if loc in net.cell_types[target_type].sect_loc:
@@ -465,8 +482,11 @@ class Network_Data:
 
                     for sec in sect_loc:
                         input_spike_name = f'{sec}_{receptor}'
-                        input_spike_idx = self.neuron_data_dict[target_gid].isec_name_lookup[input_spike_name]
-                        self.input_spike_dict[target_gid][input_spike_idx, :] += conn_spikes
+                        input_sec_idx = self.neuron_data_dict[target_gid].isec_name_lookup[input_spike_name]
+                        self.input_spike_dict[target_gid][input_sec_idx, delay_samples:] += conn_spikes[:-delay_samples]
+
+                        self.connectivity_dict[target_type][target_gid - target_gid_list[0], input_sec_idx, src_gid] = weight
+
             
 
 class CellType_Dataset_Fast(torch.utils.data.Dataset):
@@ -476,6 +496,9 @@ class CellType_Dataset_Fast(torch.utils.data.Dataset):
                  soma_filter=False, device='cpu'):
         
         network_data = Network_Data(net, soma_filter=soma_filter)
+        self.connectivity_dict = network_data.connectivity_dict
+        self.delay_matrix = network_data.delay_matrix
+
         self.cell_type = cell_type
         self.num_cells = len(network_data.net.gid_ranges[self.cell_type])
         self.data_step_size = data_step_size
