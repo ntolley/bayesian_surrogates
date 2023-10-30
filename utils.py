@@ -12,7 +12,7 @@ import pickle
 from hnn_core.cell import _get_gaussian_connection
 from hnn_core.network import _connection_probability
 from sbi import utils as sbi_utils
-from typing import Dict,Tuple,Optional,List
+from typing import Dict, Tuple, Optional, List
 
 
 
