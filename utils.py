@@ -880,3 +880,110 @@ class model_network_custom_weights(nn.Module):
         syn_indices = np.where(np.in1d(training_set.isec_names, syn_names))[0]
 
         return syn_indices
+
+class make_connectivity_matrix:
+    def __init__(self, net, soma_filter=False):
+        self.net = net
+        self.dt = 0.5
+        self.input_spike_dict = dict()
+        self.neuron_info_dict = self.make_neuron_info()
+        
+        self.connectivity_dict = dict()
+        for cell_type, gid_list in net.gid_ranges.items():
+
+            # Initialize blank arrays for connectivity
+            if cell_type in net.cell_types:
+                input_size = len(self.neuron_info_dict[cell_type]['isec'])  # Just need first cell for num inputs
+                # Dictionary indexed by target type, entry is (num_targets, num_inputs, num_sources) shape matrix
+                self.connectivity_dict[cell_type] = np.zeros((len(net.gid_ranges[cell_type]), input_size, net._n_gids))
+
+                isec_names = self.neuron_info_dict[cell_type]['isec']
+                self.neuron_info_dict[cell_type]['isec_name_lookup'] =  {name: idx for idx, name in enumerate(isec_names)}
+
+        self.delay_matrix = np.zeros((net._n_gids, net._n_cells))
+        for conn in net.connectivity:
+            for src_gid, target_gid_list in conn['gid_pairs'].items():
+                src_type = conn['src_type']
+
+                # Positions assigned based on gid in real network
+                src_pos_list = list(net.pos_dict[src_type])
+
+                # Proximal/distal drives
+                if src_type in net.cell_types:
+                    src_pos = src_pos_list[src_gid - list(net.gid_ranges[src_type])[0]]
+                else:
+                    src_pos = src_pos_list[0]
+
+                # Loop through all target gids and append spikes to appropriate array
+                for target_gid in target_gid_list:
+                    target_type = conn['target_type']
+                    receptor = conn['receptor']
+                    loc = conn['loc']
+                    # Positions assigned based on gid in real network
+                    target_pos_list = list(net.pos_dict[target_type])
+                    if target_type in net.cell_types:
+                        target_pos = target_pos_list[target_gid - list(net.gid_ranges[target_type])[0]]
+                    else:
+                        target_pos = target_pos_list[0]
+
+                    # Get distance dependent weight/delay for connection
+                    weight, delay = _get_gaussian_connection(
+                        src_pos, target_pos, conn['nc_dict'], inplane_distance=net._inplane_distance)
+
+                    delay_samples = int(round(delay / self.dt))
+                    # if delay_samples == 0:
+                    #     delay_samples = 1 # Can only deliver a spike at least 1 time step in the future
+
+                    # Add delay to delay matrix
+                    self.delay_matrix[src_gid, target_gid] = delay                    
+
+                    # Delay spikes by delay_samples
+
+                    if loc in net.cell_types[target_type].sect_loc:
+                        sect_loc = net.cell_types[target_type].sect_loc[loc]
+                    else:
+                        sect_loc = [loc]
+                        assert loc in net.cell_types[target_type].sections
+
+                    for sec in sect_loc:
+                        input_spike_name = f'{sec}_{receptor}'
+                        input_sec_idx = self.neuron_info_dict[target_type]['isec_name_lookup'][input_spike_name]
+                        self.connectivity_dict[target_type][target_gid - target_gid_list[0], input_sec_idx, src_gid] = weight
+
+    def make_neuron_info(self):
+        neuron_info_dict = dict()
+        neuron_info_dict['L2_basket'] = {
+            'vsec': ['soma'],
+            'isec': ['soma_ampa', 'soma_gabaa', 'soma_nmda']}
+
+        neuron_info_dict['L2_pyramidal'] = {
+            'vsec': ['apical_trunk', 'apical_1', 'apical_tuft', 'apical_oblique', 'basal_1', 'basal_2', 'basal_3', 'soma'],
+            'isec': ['apical_trunk_ampa', 'apical_trunk_nmda', 'apical_trunk_gabaa',
+                    'apical_trunk_gabab', 'apical_1_ampa', 'apical_1_nmda', 'apical_1_gabaa',
+                    'apical_1_gabab', 'apical_tuft_ampa', 'apical_tuft_nmda',
+                    'apical_tuft_gabaa', 'apical_tuft_gabab', 'apical_oblique_ampa',
+                    'apical_oblique_nmda', 'apical_oblique_gabaa', 'apical_oblique_gabab',
+                    'basal_1_ampa', 'basal_1_nmda', 'basal_1_gabaa', 'basal_1_gabab',
+                    'basal_2_ampa', 'basal_2_nmda', 'basal_2_gabaa', 'basal_2_gabab',
+                    'basal_3_ampa', 'basal_3_nmda', 'basal_3_gabaa', 'basal_3_gabab',
+                    'soma_gabaa', 'soma_gabab']}
+
+        neuron_info_dict['L5_basket'] = {
+            'vsec': ['soma'],
+            'isec': ['soma_ampa', 'soma_gabaa', 'soma_nmda']}
+
+        neuron_info_dict['L5_pyramidal'] = {
+            'vsec': ['apical_trunk', 'apical_1', 'apical_2', 'apical_tuft', 'apical_oblique', 'basal_1', 'basal_2', 'basal_3', 'soma'],
+            'isec': ['apical_trunk_ampa', 'apical_trunk_nmda', 'apical_trunk_gabaa',
+                    'apical_trunk_gabab', 'apical_1_ampa', 'apical_1_nmda', 'apical_1_gabaa',
+                    'apical_1_gabab', 'apical_2_ampa', 'apical_2_nmda', 'apical_2_gabaa',
+                    'apical_2_gabab', 'apical_tuft_ampa', 'apical_tuft_nmda',
+                    'apical_tuft_gabaa', 'apical_tuft_gabab', 'apical_oblique_ampa',
+                    'apical_oblique_nmda', 'apical_oblique_gabaa', 'apical_oblique_gabab',
+                    'basal_1_ampa', 'basal_1_nmda', 'basal_1_gabaa', 'basal_1_gabab',
+                    'basal_2_ampa', 'basal_2_nmda', 'basal_2_gabaa', 'basal_2_gabab',
+                    'basal_3_ampa', 'basal_3_nmda', 'basal_3_gabaa', 'basal_3_gabab',
+                    'soma_gabaa', 'soma_gabab']
+        }
+
+        return neuron_info_dict
