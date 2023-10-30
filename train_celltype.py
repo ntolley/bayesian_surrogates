@@ -114,17 +114,18 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
 
 
 dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
+
+
 cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 
 
 for dataset_type in dataset_type_list:
+    dipole_array = np.array(
+            [np.load(f'datasets_{dataset_type}/dipole_data/dipole_{sample_idx}.npy') for
+             sample_idx in range(50)])
     for cell_type in cell_type_list:
         print('\n')
         print(f'___Training {dataset_type} {cell_type} model___')
-
-        dipole_array = np.array(
-            [np.load(f'datasets_{dataset_type}/dipole_data/dipole_{sample_idx}.npy') for
-             sample_idx in range(100)])
 
         # Ensure simulations are subthreshold
         if dataset_type == 'subthreshold':

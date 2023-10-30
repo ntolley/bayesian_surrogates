@@ -464,8 +464,8 @@ class Network_Data:
                         src_pos, target_pos, conn['nc_dict'], inplane_distance=net._inplane_distance)
 
                     delay_samples = int(round(delay / self.dt))
-                    if delay_samples == 0:
-                        delay_samples = 1 # Can only deliver a spike at least 1 time step in the future
+                    # if delay_samples == 0:
+                    #     delay_samples = 1 # Can only deliver a spike at least 1 time step in the future
 
                     # Add delay to delay matrix
                     self.delay_matrix[src_gid, target_gid] = delay                    
@@ -483,7 +483,10 @@ class Network_Data:
                     for sec in sect_loc:
                         input_spike_name = f'{sec}_{receptor}'
                         input_sec_idx = self.neuron_data_dict[target_gid].isec_name_lookup[input_spike_name]
-                        self.input_spike_dict[target_gid][input_sec_idx, delay_samples:] += conn_spikes[:-delay_samples]
+                        if delay_samples != 0:
+                            self.input_spike_dict[target_gid][input_sec_idx, delay_samples:] += conn_spikes[:-delay_samples]
+                        else:
+                            self.input_spike_dict[target_gid][input_sec_idx, :] += conn_spikes
 
                         self.connectivity_dict[target_type][target_gid - target_gid_list[0], input_sec_idx, src_gid] = weight
 
@@ -704,6 +707,8 @@ class model_celltype_lstm(nn.Module):
         self.tau1_init, self.tau2_init = 10, 20
 
         self.kernel_scale_init, self.kernel_offset_init = 10, -5
+        self.kernel = self.get_kernel(torch.arange(0, self.kernel_size, 1).to(self.device),
+                                tau1=self.tau1_init, tau2=self.tau2_init).float().flip(0)
 
         # LSTM Layer
         # self.lstm = nn.LSTM(hidden_dim, hidden_dim, n_layers, batch_first=True, dropout=dropout)
@@ -727,9 +732,8 @@ class model_celltype_lstm(nn.Module):
     
     def forward(self, x, hidden):
         batch_size = x.size(0)
-        kernel = self.get_kernel(torch.arange(0, self.kernel_size, 1).to(self.device),
-                                tau1=self.tau1_init, tau2=self.tau2_init).float().flip(0)
-        kernel_product = kernel.tile(dims=(batch_size, self.input_size, 1)).transpose(1,2)
+
+        kernel_product = self.kernel.tile(dims=(batch_size, self.input_size, 1)).transpose(1,2)
 
         out = (kernel_product * x).sum(dim=1).unsqueeze(1)
         # print(out.shape)
