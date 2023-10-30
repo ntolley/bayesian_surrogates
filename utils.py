@@ -12,6 +12,7 @@ import pickle
 from hnn_core.cell import _get_gaussian_connection
 from hnn_core.network import _connection_probability
 from sbi import utils as sbi_utils
+from typing import Dict,Tuple,Optional,List
 
 
 
@@ -683,6 +684,7 @@ def beta_tuning_param_function(net, theta_dict, rate=10):
         cell_specific=True, weights_ampa=weights_ampa_p1, weights_nmda=None, space_constant=1e50,
         synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-3], conn_seed=seed_array[-4])
 
+
 #LSTM/GRU architecture for decoding
 class model_celltype_lstm(nn.Module):
     def __init__(self, input_size, output_size, hidden_dim=64, n_layers=5, dropout=0.1, kernel_size=200, device='cuda:0', bidirectional=False):
@@ -711,8 +713,8 @@ class model_celltype_lstm(nn.Module):
                                 tau1=self.tau1_init, tau2=self.tau2_init).float().flip(0)
 
         # LSTM Layer
-        # self.lstm = nn.LSTM(hidden_dim, hidden_dim, n_layers, batch_first=True, dropout=dropout)
-        self.lstm = nn.LSTM(input_size, hidden_dim, n_layers, batch_first=True, dropout=dropout)   
+        self.lstm = nn.LSTM(input_size, hidden_dim, n_layers, batch_first=True, dropout=dropout)
+        self.lstm.flatten_parameters()
 
         self.fc_input = nn.Sequential(
             nn.Linear(input_size, self.hidden_dim),
@@ -730,34 +732,24 @@ class model_celltype_lstm(nn.Module):
 
         )
     
-    def forward(self, x, hidden):
+    def forward(self, x: torch.Tensor, h0: torch.Tensor, c0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size = x.size(0)
-
         kernel_product = self.kernel.tile(dims=(batch_size, self.input_size, 1)).transpose(1,2)
 
         out = (kernel_product * x).sum(dim=1).unsqueeze(1)
-        # print(out.shape)
-
+        
         # out = self.fc_input(out.contiguous())
-        out, hidden = self.lstm(out, hidden)
+        out, (h0, c0) = self.lstm(out, (h0, c0))
         out = out.contiguous()
         out = self.fc_output(out)
             
-        return out, hidden
-    
-    def init_hidden(self, batch_size):
-        # This method generates the first hidden state of zeros which we'll use in the forward pass
-        weight = next(self.parameters()).data.to(self.device)
-
-        # LSTM cell initialization
-        hidden = (weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(self.device),
-                      weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(self.device))
-    
-        return hidden
+        return (out, h0, c0)
+        # return out_hidden
 
     def get_kernel(self, t_vec, tau1=10, tau2=20):
         G = tau2/(tau2-tau1)*(-torch.exp(-t_vec/tau1) + torch.exp(-t_vec/tau2))
         return G
+
 
 
 #LSTM/GRU architecture for decoding

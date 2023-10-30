@@ -39,9 +39,11 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             batch_y = batch_y.float().to(device)
 
             output_sequence = []
-            hidden = model.init_hidden(batch_x.size(0))
+            h0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
+            c0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
+
             for t in range(kernel_size, batch_x.size(1)-1):
-                output, hidden = model(batch_x[:,(t-kernel_size):t, :], hidden)
+                output, h0, c0 = model(batch_x[:,(t-kernel_size):t, :], h0, c0)
                 output_sequence.append(output)
 
             output_sequence = torch.cat(output_sequence, dim=1)
@@ -63,9 +65,10 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
                 batch_y = batch_y.float().to(device)
 
                 output_sequence = []
-                hidden = model.init_hidden(batch_x.size(0))
+                h0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
+                c0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
                 for t in range(kernel_size, batch_x.size(1)):
-                    output, hidden = model(batch_x[:,(t-kernel_size):t, :], hidden)
+                    output, h0, c0 = model(batch_x[:,(t-kernel_size):t, :], h0, c0)
                     output_sequence.append(output)
 
                 output_sequence = torch.cat(output_sequence, dim=1)
@@ -180,8 +183,9 @@ for dataset_type in dataset_type_list:
 
 
         # Initialize and train model
-        model = utils.model_celltype_lstm(input_size=input_size, output_size=output_size,
-                                          hidden_dim=hidden_dim, n_layers=n_layers, device=device).to(device)
+        model_pytorch = utils.model_celltype_lstm(input_size=input_size, output_size=output_size,
+                                          hidden_dim=hidden_dim, n_layers=n_layers, device=device)
+        model = torch.jit.script(model_pytorch).to(device)
 
         if dataset_type == 'suprathreshold':
             model.load_state_dict(torch.load(f'subthreshold_models/{cell_type}_subthreshold_model.pt'))
