@@ -26,14 +26,14 @@ num_cores = multiprocessing.cpu_count()
 
 # Define simulation function
 #---------------------------
-def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthreshold'):
+def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthreshold', rate=20):
     theta_dict = {param_name: param_dict['rescale_function'](thetai[param_idx].numpy(), param_dict['bounds']) for 
                     param_idx, (param_name, param_dict) in enumerate(prior_dict.items())}
 
     hnn_core_root = op.dirname(hnn_core.__file__)
     params_fname = op.join(hnn_core_root, 'param', 'default.json')
     params = read_params(params_fname)
-    params.update({'N_pyr_x': 3, 'N_pyr_y': 3})
+    params.update({'N_pyr_x': 7, 'N_pyr_y': 7})
     
     net = calcium_model(params)
     if suffix != 'connected':
@@ -95,21 +95,21 @@ net = calcium_model()
 suffix = 'subthreshold'
 rate = 20
 prior_dict = {'EI_gscale': {'bounds': (-2, 2), 'rescale_function': log_scale_forward},
-              'EE_gscale': {'bounds': (-2, 1), 'rescale_function': log_scale_forward},
+              'EE_gscale': {'bounds': (-2, 0), 'rescale_function': log_scale_forward},
               'II_gscale': {'bounds': (-2, 2), 'rescale_function': log_scale_forward},
               'IE_gscale': {'bounds': (-2, 2), 'rescale_function': log_scale_forward},
               'EI_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
               'EE_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
               'II_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
               'IE_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
-              'L2e_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L2i_distal': {'bounds': (-4, -3), 'rescale_function': log_scale_forward},
-              'L5e_distal': {'bounds': (-4, -3), 'rescale_function': log_scale_forward},
-              'L5i_distal': {'bounds': (-4, -3), 'rescale_function': log_scale_forward},
+              'L2e_distal': {'bounds': (-4, -3.7), 'rescale_function': log_scale_forward},
+              'L2i_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
+              'L5e_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
+              'L5i_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
               'L2e_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L2i_proximal': {'bounds': (-4, -3), 'rescale_function': log_scale_forward},
-              'L5e_proximal': {'bounds': (-4, -3), 'rescale_function': log_scale_forward},
-              'L5i_proximal': {'bounds': (-4, -3), 'rescale_function': log_scale_forward},
+              'L2i_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
+              'L5e_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
+              'L5i_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
               }
 
 
@@ -118,7 +118,7 @@ theta_samples = prior.sample((n_sims,))
 
 # First sample used to fit transformers
 theta_samples[0,:] = torch.from_numpy(np.repeat(0.7, theta_samples.shape[1]))
-run_hnn(theta_samples[0, :], 0, prior_dict, transform_dict=None, suffix=suffix)
+run_hnn(theta_samples[0, :], 0, prior_dict, transform_dict=None, suffix=suffix, rate=rate)
 
 transform_dict = {}
 for cell_type in net.cell_types.keys():
@@ -129,7 +129,7 @@ for cell_type in net.cell_types.keys():
     
 # Skip first sample which is used for creating transforms
 Parallel(n_jobs=8)(delayed(run_hnn)(
-    thetai, sample_idx+1, prior_dict, transform_dict, suffix) for
+    thetai, sample_idx+1, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples[1:, :]))
 
 # Generate suprathreshold dataset
@@ -138,6 +138,7 @@ suffix = 'suprathreshold'
 prior = UniformPrior(parameters=list(prior_dict.keys()))
 theta_samples = prior.sample((n_sims,))
 lower_g, upper_g = -4, 0
+rate = 10
 
 update_keys = ['L2e_distal', 'L2i_distal', 'L5e_distal', 'L5i_distal',
                'L2e_proximal', 'L2i_proximal', 'L5e_proximal', 'L5i_proximal']
@@ -145,7 +146,7 @@ for key in update_keys:
     prior_dict[key]['bounds'] = (lower_g, upper_g)
 
 Parallel(n_jobs=8)(delayed(run_hnn)(
-    thetai, sample_idx, prior_dict, transform_dict, suffix) for
+    thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples))
 
 
@@ -156,7 +157,7 @@ prior = UniformPrior(parameters=list(prior_dict.keys()))
 theta_samples = prior.sample((n_sims,))
 
 Parallel(n_jobs=8)(delayed(run_hnn)(
-    thetai, sample_idx, prior_dict, transform_dict, suffix) for
+    thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples))
 
 

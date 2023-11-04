@@ -117,6 +117,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
 
 
 dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
+# dataset_type_list = ['connected']
 
 
 cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
@@ -125,18 +126,18 @@ cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 for dataset_type in dataset_type_list:
     dipole_array = np.array(
             [np.load(f'datasets_{dataset_type}/dipole_data/dipole_{sample_idx}.npy') for
-             sample_idx in range(50)])
+             sample_idx in range(100)])
     for cell_type in cell_type_list:
         print('\n')
         print(f'___Training {dataset_type} {cell_type} model___')
 
-        # Ensure simulations are subthreshold
-        if dataset_type == 'subthreshold':
-            # Threshold for detecting spikes in dipole may need to be hand tuned based on number of cells
-            sim_indices = np.where(dipole_array.max(axis=1) < 2e-3)[0]
-            len(sim_indices)
-        else:
-            sim_indices = np.arange(100)
+        # # Ensure simulations are subthreshold
+        # if dataset_type == 'subthreshold':
+        #     # Threshold for detecting spikes in dipole may need to be hand tuned based on number of cells
+        #     sim_indices = np.where(dipole_array.max(axis=1) < 2e-3)[0]
+        #     len(sim_indices)
+        # else:
+        sim_indices = np.arange(50)
 
         # Network size for different cell types
         if cell_type == 'L2_basket' or cell_type == 'L5_basket':
@@ -193,7 +194,7 @@ for dataset_type in dataset_type_list:
             model.load_state_dict(torch.load(f'suprathreshold_models/{cell_type}_suprathreshold_model.pt'))
 
         lr = 0.01
-        weight_decay = 0.0
+        weight_decay = 0
         max_epochs = 1000
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -205,3 +206,4 @@ for dataset_type in dataset_type_list:
         with open(f'{dataset_type}_models/{cell_type}_{dataset_type}_loss_dict.pkl', 'wb') as f:
             dill.dump(loss_dict, f)
 
+        del training_set, validation_set, training_generator, validation_generator, model_pytorch, model, loss_dict
