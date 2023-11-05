@@ -33,7 +33,7 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     hnn_core_root = op.dirname(hnn_core.__file__)
     params_fname = op.join(hnn_core_root, 'param', 'default.json')
     params = read_params(params_fname)
-    params.update({'N_pyr_x': 7, 'N_pyr_y': 7})
+    params.update({'N_pyr_x': 3, 'N_pyr_y': 3})
     
     net = calcium_model(params)
     if suffix != 'connected':
@@ -83,7 +83,7 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
         training_set = utils.CellType_Dataset_Fast(
             net, cell_type=cell_type, window_size=500, data_step_size=250,
             input_spike_scaler=input_spike_scaler, vsec_scaler=vsec_scaler, isec_scaler=isec_scaler,
-            soma_filter=True, device='cpu')
+            soma_filter=False, device='cpu')
         torch.save(training_set, f'datasets_{suffix}/training_data/{cell_type}_dataset_{sample_idx}.pt')
 
 
@@ -94,14 +94,14 @@ net = calcium_model()
 # Subthreshold
 suffix = 'subthreshold'
 rate = 20
-prior_dict = {'EI_gscale': {'bounds': (-2, 2), 'rescale_function': log_scale_forward},
-              'EE_gscale': {'bounds': (-2, 0), 'rescale_function': log_scale_forward},
-              'II_gscale': {'bounds': (-2, 2), 'rescale_function': log_scale_forward},
-              'IE_gscale': {'bounds': (-2, 2), 'rescale_function': log_scale_forward},
-              'EI_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
-              'EE_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
-              'II_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
-              'IE_prob': {'bounds': (0, 1), 'rescale_function': linear_scale_forward},
+prior_dict = {'EI_gscale': {'bounds': (-3, 3), 'rescale_function': log_scale_forward},
+              'EE_gscale': {'bounds': (-3, 0), 'rescale_function': log_scale_forward},
+              'II_gscale': {'bounds': (-3, 3), 'rescale_function': log_scale_forward},
+              'IE_gscale': {'bounds': (-3, 3), 'rescale_function': log_scale_forward},
+              'EI_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
+              'EE_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
+              'II_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
+              'IE_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
               'L2e_distal': {'bounds': (-4, -3.7), 'rescale_function': log_scale_forward},
               'L2i_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
               'L5e_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
@@ -137,7 +137,7 @@ Parallel(n_jobs=8)(delayed(run_hnn)(
 suffix = 'suprathreshold'
 prior = UniformPrior(parameters=list(prior_dict.keys()))
 theta_samples = prior.sample((n_sims,))
-lower_g, upper_g = -4, 0
+lower_g, upper_g = -4, -1
 rate = 10
 
 update_keys = ['L2e_distal', 'L2i_distal', 'L5e_distal', 'L5i_distal',

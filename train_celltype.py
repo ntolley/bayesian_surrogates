@@ -124,9 +124,9 @@ cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 
 
 for dataset_type in dataset_type_list:
-    dipole_array = np.array(
-            [np.load(f'datasets_{dataset_type}/dipole_data/dipole_{sample_idx}.npy') for
-             sample_idx in range(100)])
+    # dipole_array = np.array(
+    #         [np.load(f'datasets_{dataset_type}/dipole_data/dipole_{sample_idx}.npy') for
+    #          sample_idx in range(100)])
     for cell_type in cell_type_list:
         print('\n')
         print(f'___Training {dataset_type} {cell_type} model___')
@@ -137,7 +137,7 @@ for dataset_type in dataset_type_list:
         #     sim_indices = np.where(dipole_array.max(axis=1) < 2e-3)[0]
         #     len(sim_indices)
         # else:
-        sim_indices = np.arange(50)
+        sim_indices = np.arange(100)
 
         # Network size for different cell types
         if cell_type == 'L2_basket' or cell_type == 'L5_basket':
@@ -206,4 +206,4 @@ for dataset_type in dataset_type_list:
         with open(f'{dataset_type}_models/{cell_type}_{dataset_type}_loss_dict.pkl', 'wb') as f:
             dill.dump(loss_dict, f)
 
-        del training_set, validation_set, training_generator, validation_generator, model_pytorch, model, loss_dict
+        del training_set, validation_set, training_generator, validation_generator, model_pytorch, model, loss_dict,
