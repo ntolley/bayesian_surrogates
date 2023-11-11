@@ -987,3 +987,188 @@ class make_connectivity_matrix:
         }
 
         return neuron_info_dict
+
+
+class SurrGradSpike(torch.autograd.Function):
+    """
+    Here we implement our spiking nonlinearity which also implements 
+    the surrogate gradient. By subclassing torch.autograd.Function, 
+    we will be able to use all of PyTorch's autograd functionality.
+    Here we use the normalized negative part of a fast sigmoid 
+    as this was done in Zenke & Ganguli (2018).
+    """
+    
+    scale = 1000.0 # controls steepness of surrogate gradient
+
+    @staticmethod
+    def forward(ctx, input):
+        """
+        In the forward pass we compute a step function of the input Tensor
+        and return it. ctx is a context object that we use to stash information which 
+        we need to later backpropagate our error signals. To achieve this we use the 
+        ctx.save_for_backward method.
+        """
+        ctx.save_for_backward(input)
+        out = torch.zeros_like(input)
+        out[input > 0] = 1.0
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        In the backward pass we receive a Tensor we need to compute the 
+        surrogate gradient of the loss with respect to the input. 
+        Here we use the normalized negative part of a fast sigmoid 
+        as this was done in Zenke & Ganguli (2018).
+        """
+        input, = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        grad = grad_input/(SurrGradSpike.scale*torch.abs(input)+1.0)**2
+        return grad
+    
+# here we overwrite our naive spike function by the "SurrGradSpike" nonlinearity which implements a surrogate gradient
+spike_fn  = SurrGradSpike.apply
+
+
+#LSTM/GRU architecture for decoding
+class model_network(nn.Module):
+    def __init__(self, net, model_dict, dataset_dict, network_data, device='cuda:0', bidirectional=False):
+        super(model_network, self).__init__()
+        self.net = net
+        # self.model_dict = model_dict
+        self.L5pyr_model: torch.Module = model_dict['L5_pyramidal']
+        self.L2pyr_model: torch.Module = model_dict['L2_pyramidal']
+        self.L5basket_model: torch.Module = model_dict['L5_basket']
+        self.L2basket_model: torch.Module = model_dict['L2_basket']   
+        self.model_dict: torch.ModuleDict[str, torch.Module] = nn.ModuleDict(model_dict)
+        self.gid_ranges: Dict[str, np.ndarray] = {cell_type: list(gid_range) for cell_type, gid_range in net.gid_ranges.items()}
+
+        self.kernel_size = model_dict['L5_pyramidal'].kernel_size
+        self.dataset_dict = dataset_dict
+        self.network_data = network_data
+        connectivity_dict = network_data.connectivity_dict.copy()
+        self.connectivity_dict = nn.ParameterDict(connectivity_dict)
+
+        EI_dict = dict()
+        for cell_type, conn in self.connectivity_dict.items():
+            self.connectivity_dict[cell_type] = torch.from_numpy(conn).float().to(device)
+            # EI_dict[cell_type] = torch.tensor(0.0).requires_grad_(True).to(device)
+            for target_type, _ in self.connectivity_dict.items():
+                EI_dict[f'{cell_type}_{target_type}'] = torch.tensor(0.0).requires_grad_(True).to(device)
+        self.EI_dict = nn.ParameterDict(EI_dict)
+
+        self.delay_matrix = network_data.delay_matrix
+
+        self.scaler_dict: Dict[str, Dict[str, torch.Tensor]] = self.get_spike_scaler()
+
+        self.soma_idx = 0
+        self.threshold_dict = self.get_thresholds()
+        self.threshold_dict['L5_basket'] = torch.tensor(50.0).to(device)
+        self.threshold_dict['L2_basket'] = torch.tensor(50.0).to(device)
+
+        self.device = device
+
+
+    @torch.jit.export
+    def scale_spikes(self, input_spikes: torch.Tensor, cell_type: str) -> torch.Tensor:
+        # input_spikes *= (10 ** self.EI_dict[cell_type])
+        input_spikes *= self.scaler_dict[cell_type]['spike_scale']
+        input_spikes += self.scaler_dict[cell_type]['spike_min']
+        return input_spikes
+
+    def get_thresholds(self):
+        threshold_dict = dict()
+        for cell_type in self.net.cell_types:
+            threshold = (self.net.threshold - self.scaler_dict[cell_type]['vsec_mean'][self.soma_idx]) / \
+                self.scaler_dict[cell_type]['vsec_scale'][self.soma_idx]
+            threshold_dict[cell_type] = threshold
+
+        return threshold_dict
+
+    def forward(self, L5pyr_spikes: torch.Tensor, L2pyr_spikes: torch.Tensor,
+                L5basket_spikes: torch.Tensor, L2basket_spikes: torch.Tensor) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        input_spikes_dict: Dict[str, torch.Tensor] = {'L5_pyramidal': L5pyr_spikes, 'L2_pyramidal': L2pyr_spikes,
+                            'L5_basket': L5basket_spikes, 'L2_basket': L2basket_spikes}
+
+        cell_names = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
+
+        h0_L5basket = torch.zeros(self.L5basket_model.n_layers, L5basket_spikes.size(0), self.L5basket_model.hidden_dim).to(self.device)
+        c0_L5basket = h0_L5basket.clone()
+
+        h0_L2basket = torch.zeros(self.L2basket_model.n_layers, L2basket_spikes.size(0), self.L2basket_model.hidden_dim).to(self.device)
+        c0_L2basket = h0_L2basket.clone()
+
+        h0_L5pyr = torch.zeros(self.L5pyr_model.n_layers, L5pyr_spikes.size(0), self.L5pyr_model.hidden_dim).to(self.device)
+        c0_L5pyr = h0_L5pyr.clone()
+
+        h0_L2pyr = torch.zeros(self.L2pyr_model.n_layers, L2pyr_spikes.size(0), self.L2pyr_model.hidden_dim).to(self.device)
+        c0_L2pyr = h0_L2pyr.clone()
+        
+        pred_y_dict = {cell_type:
+            [torch.zeros((input_spikes_dict[cell_type][:,0,:].size(0),model_dict[cell_type].output_size)).to(self.device),
+             torch.zeros((input_spikes_dict[cell_type][:,0,:].size(0), model_dict[cell_type].output_size)).to(self.device)] for
+                cell_type in cell_names}
+        for time_idx in range(self.kernel_size, input_spikes_dict['L5_basket'].size(1)-1):
+ 
+            batch_x = input_spikes_dict['L2_basket'][:, time_idx-self.L2pyr_model.kernel_size:time_idx, :].clone()
+            out_L2_basket = self.scale_spikes(batch_x, 'L2_basket')
+
+            batch_x = input_spikes_dict['L2_pyramidal'][:, time_idx-self.L2pyr_model.kernel_size:time_idx, :].clone()
+            out_L2_pyr = self.scale_spikes(batch_x, 'L2_pyramidal')
+
+            batch_x = input_spikes_dict['L5_basket'][:, time_idx-self.L5pyr_model.kernel_size:time_idx, :].clone()
+            out_L5_basket = self.scale_spikes(batch_x, 'L5_basket')     
+
+            batch_x = input_spikes_dict['L5_pyramidal'][:, time_idx-self.L5pyr_model.kernel_size:time_idx, :].clone()
+            out_L5_pyr = self.scale_spikes(batch_x, 'L5_pyramidal')
+
+            futures : List[torch.jit.Future[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]] = []
+            futures.append(torch.jit.fork(self.L2basket_model, out_L2_basket, h0_L2basket, c0_L2basket))
+            futures.append(torch.jit.fork(self.L2pyr_model, out_L2_pyr, h0_L2pyr, c0_L2pyr))
+            futures.append(torch.jit.fork(self.L5basket_model, out_L5_basket, h0_L5basket, c0_L5basket ))
+            futures.append(torch.jit.fork(self.L5pyr_model, out_L5_pyr, h0_L5pyr, c0_L5pyr))
+
+            # Collect the results from the launched tasks
+            results :  List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+            for future in futures:
+                results.append(torch.jit.wait(future))
+
+            pred_y_dict['L2_basket'].append(results[0][0][:,-1, :])
+            pred_y_dict['L2_pyramidal'].append(results[1][0][:,-1, :])
+            pred_y_dict['L5_basket'].append(results[2][0][:,-1, :])
+            pred_y_dict['L5_pyramidal'].append(results[3][0][:,-1, :])
+
+            h0_L2basket, c0_L2basket = results[0][1], results[0][2]
+            h0_L2pyr, c0_L2pyr = results[1][1], results[1][2]
+            h0_L5basket, c0_L5basket = results[2][1], results[2][2]
+            h0_L5pyr, c0_L5pyr = results[3][1], results[3][2]
+
+            # Detect spikes and update input spikes
+            for cell_type in cell_names:
+                pred_t1 = pred_y_dict[cell_type][-1][:, self.soma_idx]
+                pred_t2 = pred_y_dict[cell_type][-2][:, self.soma_idx]
+
+                spike_greater = spike_fn(pred_t1 - self.threshold_dict[cell_type])
+                spike_less = spike_fn(pred_t2 - self.threshold_dict[cell_type])
+
+                spike_mask = spike_greater * (1 - spike_less)
+                            
+                for target_type in cell_names:
+                    input_spikes_dict[target_type][:, time_idx+1, :] += \
+                        torch.matmul(self.connectivity_dict[target_type][:, :, self.gid_ranges[cell_type]], \
+                            spike_mask * (10 ** self.EI_dict[f'{cell_type}_{target_type}']))
+
+        return (torch.stack(pred_y_dict['L2_basket']), torch.stack(pred_y_dict['L2_pyramidal']),
+                torch.stack(pred_y_dict['L5_basket']), torch.stack(pred_y_dict['L5_pyramidal']))
+    
+    def get_spike_scaler(self):
+        scaler_dict = dict()
+        for cell_type in net.cell_types:
+            scaler_dict[cell_type] = {
+                'spike_min': torch.tensor(self.dataset_dict[cell_type].datasets[0].input_spike_scaler.min_).float().to(device),
+                'spike_scale': torch.tensor(self.dataset_dict[cell_type].datasets[0].input_spike_scaler.scale_).float().to(device),
+                'vsec_mean': torch.tensor(self.dataset_dict[cell_type].datasets[0].vsec_scaler.mean_).float().to(device),
+                'vsec_scale': torch.tensor(self.dataset_dict[cell_type].datasets[0].vsec_scaler.scale_).float().to(device),
+            }
+
+        return scaler_dict
