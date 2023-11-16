@@ -16,6 +16,7 @@ from typing import Dict, Tuple, Optional, List
 
 
 
+
 #Helper function to pytorch train networks for decoding
 # def train_model(model, optimizer, criterion, max_epochs, training_generator, device, print_freq=10):
 #     train_loss_array = []
@@ -998,7 +999,9 @@ class SurrGradSpike(torch.autograd.Function):
     as this was done in Zenke & Ganguli (2018).
     """
     
-    scale = 1000.0 # controls steepness of surrogate gradient
+    # scale = 1000.0 # controls steepness of surrogate gradient
+    scale = 1e6 # controls steepness of surrogate gradient
+
 
     @staticmethod
     def forward(ctx, input):
@@ -1035,7 +1038,8 @@ class model_network(nn.Module):
     def __init__(self, net, model_dict, dataset_dict, network_data, device='cuda:0', bidirectional=False):
         super(model_network, self).__init__()
         self.net = net
-        # self.model_dict = model_dict
+        self.device = device
+
         self.L5pyr_model: torch.Module = model_dict['L5_pyramidal']
         self.L2pyr_model: torch.Module = model_dict['L2_pyramidal']
         self.L5basket_model: torch.Module = model_dict['L5_basket']
@@ -1065,8 +1069,9 @@ class model_network(nn.Module):
         self.threshold_dict = self.get_thresholds()
         self.threshold_dict['L5_basket'] = torch.tensor(50.0).to(device)
         self.threshold_dict['L2_basket'] = torch.tensor(50.0).to(device)
+        self.threshold_dict['L5_pyramidal'] = torch.tensor(100.0).to(device)
+        # self.threshold_dict['L2_pyramidal'] = torch.tensor(50.0).to(device)
 
-        self.device = device
 
 
     @torch.jit.export
@@ -1105,8 +1110,8 @@ class model_network(nn.Module):
         c0_L2pyr = h0_L2pyr.clone()
         
         pred_y_dict = {cell_type:
-            [torch.zeros((input_spikes_dict[cell_type][:,0,:].size(0),model_dict[cell_type].output_size)).to(self.device),
-             torch.zeros((input_spikes_dict[cell_type][:,0,:].size(0), model_dict[cell_type].output_size)).to(self.device)] for
+            [torch.zeros((input_spikes_dict[cell_type][:,0,:].size(0), self.model_dict[cell_type].output_size)).to(self.device),
+             torch.zeros((input_spikes_dict[cell_type][:,0,:].size(0), self.model_dict[cell_type].output_size)).to(self.device)] for
                 cell_type in cell_names}
         for time_idx in range(self.kernel_size, input_spikes_dict['L5_basket'].size(1)-1):
  
@@ -1163,12 +1168,12 @@ class model_network(nn.Module):
     
     def get_spike_scaler(self):
         scaler_dict = dict()
-        for cell_type in net.cell_types:
+        for cell_type in self.net.cell_types:
             scaler_dict[cell_type] = {
-                'spike_min': torch.tensor(self.dataset_dict[cell_type].datasets[0].input_spike_scaler.min_).float().to(device),
-                'spike_scale': torch.tensor(self.dataset_dict[cell_type].datasets[0].input_spike_scaler.scale_).float().to(device),
-                'vsec_mean': torch.tensor(self.dataset_dict[cell_type].datasets[0].vsec_scaler.mean_).float().to(device),
-                'vsec_scale': torch.tensor(self.dataset_dict[cell_type].datasets[0].vsec_scaler.scale_).float().to(device),
+                'spike_min': torch.tensor(self.dataset_dict[cell_type].datasets[0].input_spike_scaler.min_).float().to(self.device),
+                'spike_scale': torch.tensor(self.dataset_dict[cell_type].datasets[0].input_spike_scaler.scale_).float().to(self.device),
+                'vsec_mean': torch.tensor(self.dataset_dict[cell_type].datasets[0].vsec_scaler.mean_).float().to(self.device),
+                'vsec_scale': torch.tensor(self.dataset_dict[cell_type].datasets[0].vsec_scaler.scale_).float().to(self.device),
             }
 
         return scaler_dict
