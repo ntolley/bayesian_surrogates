@@ -124,6 +124,8 @@ cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 
 
 for dataset_type in dataset_type_list:
+    data_path = f'/users/ntolley/scratch/bayesian_surrogates/datasets_{dataset_type}'
+
     # dipole_array = np.array(
     #         [np.load(f'datasets_{dataset_type}/dipole_data/dipole_{sample_idx}.npy') for
     #          sample_idx in range(100)])
@@ -158,10 +160,10 @@ for dataset_type in dataset_type_list:
 
 
         training_set = torch.utils.data.ConcatDataset(
-            [torch.load(f'datasets_{dataset_type}/training_data/{cell_type}_dataset_{idx}.pt') for
+            [torch.load(f'{data_path}/training_data/{cell_type}_dataset_{idx}.pt') for
              idx in training_indices])
         validation_set = torch.utils.data.ConcatDataset(
-            [torch.load(f'datasets_{dataset_type}/training_data/{cell_type}_dataset_{idx}.pt') for
+            [torch.load(f'{data_path}/training_data/{cell_type}_dataset_{idx}.pt') for
              idx in validation_indices])
 
         _, input_size = training_set[0][0].detach().cpu().numpy().shape

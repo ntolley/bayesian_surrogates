@@ -21,12 +21,16 @@ n_sims = 100
 # device = torch.device("cuda:0")
 device = 'cpu'
 
-num_cores = multiprocessing.cpu_count()
+# num_cores = multiprocessing.cpu_count()
+num_cores = 32
 
 
 # Define simulation function
 #---------------------------
 def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthreshold', rate=20):
+
+    data_path = f'/users/ntolley/scratch/bayesian_surrogates/datasets_{suffix}'
+
     theta_dict = {param_name: param_dict['rescale_function'](thetai[param_idx].numpy(), param_dict['bounds']) for 
                     param_idx, (param_name, param_dict) in enumerate(prior_dict.items())}
 
@@ -59,18 +63,18 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     dpl = simulate_dipole(net, dt=0.5, tstop=1000, record_vsec='all', record_isec='all', record_dcell=True)
 
     g = net.cell_response.plot_spikes_raster(show=False)
-    g.savefig(f'datasets_{suffix}/raster_plots/raster_{sample_idx}.png')
+    g.savefig(f'{data_path}/raster_plots/raster_{sample_idx}.png')
     plt.close()
 
     g = dpl[0].plot(show=False)
-    g.savefig(f'datasets_{suffix}/dipole_plots/dipole_{sample_idx}.png')
+    g.savefig(f'{data_path}/dipole_plots/dipole_{sample_idx}.png')
     plt.close()
 
     g = dpl[0].plot_psd(fmin=0, fmax=100, show=False)
-    g.savefig(f'datasets_{suffix}/psd_plots/psd_{sample_idx}.png')
+    g.savefig(f'{data_path}/psd_plots/psd_{sample_idx}.png')
     plt.close()
 
-    np.save(f'datasets_{suffix}/dipole_data/dipole_{sample_idx}.npy', dpl[0].data['agg'], )
+    np.save(f'{data_path}/dipole_data/dipole_{sample_idx}.npy', dpl[0].data['agg'], )
 
     for cell_type in net.cell_types.keys():
         if transform_dict is None:
@@ -84,7 +88,7 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
             net, cell_type=cell_type, window_size=500, data_step_size=250,
             input_spike_scaler=input_spike_scaler, vsec_scaler=vsec_scaler, isec_scaler=isec_scaler,
             soma_filter=False, device='cpu')
-        torch.save(training_set, f'datasets_{suffix}/training_data/{cell_type}_dataset_{sample_idx}.pt')
+        torch.save(training_set, f'{data_path}/training_data/{cell_type}_dataset_{sample_idx}.pt')
 
 
 # Generate subthreshold dataset
@@ -122,13 +126,13 @@ run_hnn(theta_samples[0, :], 0, prior_dict, transform_dict=None, suffix=suffix, 
 
 transform_dict = {}
 for cell_type in net.cell_types.keys():
-    dataset = torch.load(f'datasets_subthreshold/training_data/{cell_type}_dataset_0.pt')
+    dataset = torch.load(f'/users/ntolley/scratch/bayesian_surrogates/datasets_subthreshold/training_data/{cell_type}_dataset_0.pt')
     transform_dict[cell_type] = {'input_spike_scaler': dataset.input_spike_scaler,
                                  'vsec_scaler': dataset.vsec_scaler,
                                  'isec_scaler': dataset.isec_scaler}
     
 # Skip first sample which is used for creating transforms
-Parallel(n_jobs=8)(delayed(run_hnn)(
+Parallel(n_jobs=num_cores)(delayed(run_hnn)(
     thetai, sample_idx+1, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples[1:, :]))
 
@@ -145,7 +149,7 @@ update_keys = ['L2e_distal', 'L2i_distal', 'L5e_distal', 'L5i_distal',
 for key in update_keys:
     prior_dict[key]['bounds'] = (lower_g, upper_g)
 
-Parallel(n_jobs=8)(delayed(run_hnn)(
+Parallel(n_jobs=num_cores)(delayed(run_hnn)(
     thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples))
 
@@ -156,7 +160,7 @@ suffix = 'connected'
 prior = UniformPrior(parameters=list(prior_dict.keys()))
 theta_samples = prior.sample((n_sims,))
 
-Parallel(n_jobs=8)(delayed(run_hnn)(
+Parallel(n_jobs=num_cores)(delayed(run_hnn)(
     thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples))
 
