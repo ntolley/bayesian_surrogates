@@ -14,7 +14,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 import utils
 from utils import (SingleNeuron_Data, Network_Data, CellType_Dataset_Fast,
-                   linear_scale_forward, log_scale_forward, UniformPrior, beta_tuning_param_function)
+                   linear_scale_forward, log_scale_forward, UniformPrior, section_drive_param_function)
 import multiprocessing
 from joblib import Parallel, delayed
 n_sims = 100
@@ -43,23 +43,31 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     if suffix != 'connected':
         net.clear_connectivity()
 
-    # Extract all E-I connection types
-    E_gids = np.concatenate([net.gid_ranges['L2_pyramidal'], net.gid_ranges['L5_pyramidal']]).tolist()
-    I_gids = np.concatenate([net.gid_ranges['L2_basket'], net.gid_ranges['L5_basket']]).tolist()
+    theta_extra = {'cell_type_lookup': cell_type_lookup, 'valid_conn_list': list(),
+                   'valid_drive_dict': dict()}
+    # Connections
+    for conn_idx in range(len(net.connectivity)):
+        src_type = cell_type_lookup[net.connectivity[conn_idx]['src_type']]
+        target_type = cell_type_lookup[net.connectivity[conn_idx]['target_type']]
+        receptor = net.connectivity[conn_idx]['receptor']
+        loc = net.connectivity[conn_idx]['loc']
+        
+        conn_name = f'{src_type}_{target_type}_{receptor}_{loc}'
+        theta_extra['valid_conn_list'].append(conn_name)
+        theta_extra[f'{conn_name}_conn_idx'] = conn_idx
 
-    EI_connections = pick_connection(net, src_gids=E_gids, target_gids=I_gids)
-    EE_connections = pick_connection(net, src_gids=E_gids, target_gids=E_gids)
-    II_connections = pick_connection(net, src_gids=I_gids, target_gids=I_gids)
-    IE_connections = pick_connection(net, src_gids=I_gids, target_gids=E_gids)
+    # Drives
+    for cell_type in net.cell_types.keys():
+        for sec_name in net.cell_types[cell_type].sections.keys():
+            for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
+                drive_name = f'{cell_type}_{sec_name}_{syn_name}'
+                theta_extra['valid_drive_dict'][drive_name] = {
+                    'cell_type': cell_type, 'location': sec_name, 'receptor': syn_name}
 
-    # Store in dictionary to be added to theta_dict
-    theta_extra = {'EI_connections': EI_connections, 'EE_connections': EE_connections, 
-                'II_connections': II_connections, 'IE_connections': IE_connections,
-                'lamtha': 4.0}
     theta_extra['sample_idx'] =  sample_idx
     theta_dict['theta_extra'] = theta_extra
 
-    beta_tuning_param_function(net, theta_dict, rate=rate)
+    section_drive_param_function(net, theta_dict, rate=rate)
     dpl = simulate_dipole(net, dt=0.5, tstop=1000, record_vsec='all', record_isec='all', record_dcell=True)
 
     g = net.cell_response.plot_spikes_raster(show=False)
@@ -93,28 +101,37 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
 
 # Generate subthreshold dataset
 #------------------------------
+suffix = 'subthreshold'
+rate = 20.0
 net = calcium_model()
 
-# Subthreshold
-suffix = 'subthreshold'
-rate = 20
-prior_dict = {'EI_gscale': {'bounds': (-3, 3), 'rescale_function': log_scale_forward},
-              'EE_gscale': {'bounds': (-3, 0), 'rescale_function': log_scale_forward},
-              'II_gscale': {'bounds': (-3, 3), 'rescale_function': log_scale_forward},
-              'IE_gscale': {'bounds': (-3, 3), 'rescale_function': log_scale_forward},
-              'EI_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
-              'EE_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
-              'II_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
-              'IE_prob': {'bounds': (0.5, 1), 'rescale_function': linear_scale_forward},
-              'L2e_distal': {'bounds': (-4, -3.7), 'rescale_function': log_scale_forward},
-              'L2i_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L5e_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L5i_distal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L2e_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L2i_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L5e_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              'L5i_proximal': {'bounds': (-4, -3.5), 'rescale_function': log_scale_forward},
-              }
+cell_type_lookup = {
+    'L2_pyramidal': 'L2e', 'L2_basket': 'L2i',
+    'L5_pyramidal': 'L5e', 'L5_basket': 'L5i'}
+
+
+prior_dict = dict()
+prior_dict['lamtha'] = {'bounds': (0, 10), 'rescale_function': linear_scale_forward}
+
+# Connections
+for conn_idx in range(len(net.connectivity)):
+    src_type = cell_type_lookup[net.connectivity[conn_idx]['src_type']]
+    target_type = cell_type_lookup[net.connectivity[conn_idx]['target_type']]
+    receptor = net.connectivity[conn_idx]['receptor']
+    loc = net.connectivity[conn_idx]['loc']
+    
+    conn_name = f'{src_type}_{target_type}_{receptor}_{loc}'
+    
+    prior_dict[f'{conn_name}_gbar'] = {'bounds': (-4, 0), 'rescale_function': log_scale_forward}
+    prior_dict[f'{conn_name}_prob'] = {'bounds': (0, 1), 'rescale_function': linear_scale_forward}
+
+# Drives
+for cell_type in net.cell_types.keys():
+    for sec_name in net.cell_types[cell_type].sections.keys():
+        for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
+            drive_name = f'{cell_type}_{sec_name}_{syn_name}'
+            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4, 0), 'rescale_function': log_scale_forward}
+            prior_dict[f'{drive_name}_prob'] = {'bounds': (0, 1), 'rescale_function': linear_scale_forward}
 
 
 prior = UniformPrior(parameters=list(prior_dict.keys()))
@@ -136,32 +153,34 @@ Parallel(n_jobs=num_cores)(delayed(run_hnn)(
     thetai, sample_idx+1, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples[1:, :]))
 
-# Generate suprathreshold dataset
-#------------------------------
-suffix = 'suprathreshold'
-prior = UniformPrior(parameters=list(prior_dict.keys()))
-theta_samples = prior.sample((n_sims,))
-lower_g, upper_g = -4, -1
-rate = 10
-
-update_keys = ['L2e_distal', 'L2i_distal', 'L5e_distal', 'L5i_distal',
-               'L2e_proximal', 'L2i_proximal', 'L5e_proximal', 'L5i_proximal']
-for key in update_keys:
-    prior_dict[key]['bounds'] = (lower_g, upper_g)
-
-Parallel(n_jobs=num_cores)(delayed(run_hnn)(
-    thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
-    (sample_idx, thetai) in enumerate(theta_samples))
 
 
-# Generate connected dataset
-#---------------------------
-suffix = 'connected'
-prior = UniformPrior(parameters=list(prior_dict.keys()))
-theta_samples = prior.sample((n_sims,))
+# # Generate suprathreshold dataset
+# #------------------------------
+# suffix = 'suprathreshold'
+# prior = UniformPrior(parameters=list(prior_dict.keys()))
+# theta_samples = prior.sample((n_sims,))
+# lower_g, upper_g = -4, -1
+# rate = 10
 
-Parallel(n_jobs=num_cores)(delayed(run_hnn)(
-    thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
-    (sample_idx, thetai) in enumerate(theta_samples))
+# update_keys = ['L2e_distal', 'L2i_distal', 'L5e_distal', 'L5i_distal',
+#                'L2e_proximal', 'L2i_proximal', 'L5e_proximal', 'L5i_proximal']
+# for key in update_keys:
+#     prior_dict[key]['bounds'] = (lower_g, upper_g)
+
+# Parallel(n_jobs=num_cores)(delayed(run_hnn)(
+#     thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
+#     (sample_idx, thetai) in enumerate(theta_samples))
+
+
+# # Generate connected dataset
+# #---------------------------
+# suffix = 'connected'
+# prior = UniformPrior(parameters=list(prior_dict.keys()))
+# theta_samples = prior.sample((n_sims,))
+
+# Parallel(n_jobs=num_cores)(delayed(run_hnn)(
+#     thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
+#     (sample_idx, thetai) in enumerate(theta_samples))
 
 

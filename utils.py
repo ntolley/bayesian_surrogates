@@ -638,52 +638,112 @@ class UniformPrior(sbi_utils.BoxUniform):
         super().__init__(low=torch.tensor(low, dtype=torch.float32),
                          high=torch.tensor(high, dtype=torch.float32))
 
-def beta_tuning_param_function(net, theta_dict, rate=10):
-    conn_type_list = {'EI_connections': 'EI', 'EE_connections': 'EE', 
-                      'II_connections': 'II', 'IE_connections': 'IE'}
-    
+# Poisson drive to all synapses and random connections
+def section_drive_param_function(net, theta_dict, rate=10):
     seed_rng = np.random.default_rng(theta_dict['theta_extra']['sample_idx'])
     seed_array = seed_rng.integers(10e5, size=100)
 
     seed_count = 0
-    for conn_type_name, conn_suffix in conn_type_list.items():
-        conn_prob_name = f'{conn_suffix}_prob'
-        conn_gscale_name = f'{conn_suffix}_gscale'
+    
+    # Update prob and gbar of network connections
+    valid_conn_list = theta_dict['theta_extra']['valid_conn_list']
+    for conn_name in valid_conn_list:
+    
+        conn_prob_name = f'{conn_name}_prob'
+        conn_gbar_name = f'{conn_name}_gbar'
         
-        conn_indices = theta_dict['theta_extra'][conn_type_name]
+        conn_idx = theta_dict['theta_extra'][f'{conn_name}_conn_idx']
+        
         probability = theta_dict[conn_prob_name]
-        gscale = theta_dict[conn_gscale_name]
+        gbar = theta_dict[conn_gbar_name]
         
-        for conn_idx in conn_indices:
-            # Prune connections using internal connection_probability function
-            _connection_probability(
-                net.connectivity[conn_idx], probability=probability, conn_seed=seed_array[seed_count])
-            net.connectivity[conn_idx]['probability'] = probability
-            net.connectivity[conn_idx]['nc_dict']['A_weight'] *= gscale
-            seed_count = seed_count + 1
+        # Prune connections using internal connection_probability function
+        _connection_probability(
+            net.connectivity[conn_idx], probability=probability, conn_seed=seed_array[seed_count])
+        net.connectivity[conn_idx]['probability'] = probability
+        net.connectivity[conn_idx]['nc_dict']['A_weight'] = gbar
+        seed_count = seed_count + 1
 
     for conn_idx in range(len(net.connectivity)):
-        net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['theta_extra']['lamtha']          
+        # net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['theta_extra']['lamtha']
+        net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['lamtha']
+
+    # Add drives
+    valid_drive_dict = theta_dict['theta_extra']['valid_drive_dict']
+    for drive_name in valid_drive_dict.keys():
+        cell_type = valid_drive_dict[drive_name]['cell_type']
+        location = valid_drive_dict[drive_name]['location']
+        receptor = valid_drive_dict[drive_name]['receptor']
+
+        drive_prob_name = f'{drive_name}_prob'
+        drive_gbar_name = f'{drive_name}_gbar'
+
+        probability = theta_dict[drive_prob_name]
+        gbar = theta_dict[drive_gbar_name]
+
+        weights_ampa, weights_nmda, weights_gabaa, weights_gabab = None, None, None, None
+        if receptor == 'ampa':
+            weights_ampa = {cell_type: gbar}
+        elif receptor == 'nmda':
+            weights_nmda = {cell_type: gbar}
+        elif receptor == 'gabaa':
+            weights_gabaa = {cell_type: gbar}
+        elif receptor == 'gabab':
+            weights_gabab = {cell_type: gbar}
+
+        net.add_poisson_drive(
+            name=drive_name, tstart=0, tstop=None, rate_constant=rate, location=location, n_drive_cells='n_cells',
+            cell_specific=True, weights_ampa=weights_ampa, weights_nmda=weights_nmda,
+            weights_gabaa=weights_gabaa, weights_gabab=weights_gabab, space_constant=1e50,
+            synaptic_delays=0.0, probability=probability, event_seed=seed_array[-1], conn_seed=seed_array[-2])
+
+
+# def beta_tuning_param_function(net, theta_dict, rate=10):
+#     conn_type_list = {'EI_connections': 'EI', 'EE_connections': 'EE', 
+#                       'II_connections': 'II', 'IE_connections': 'IE'}
+    
+#     seed_rng = np.random.default_rng(theta_dict['theta_extra']['sample_idx'])
+#     seed_array = seed_rng.integers(10e5, size=100)
+
+#     seed_count = 0
+#     for conn_type_name, conn_suffix in conn_type_list.items():
+#         conn_prob_name = f'{conn_suffix}_prob'
+#         conn_gscale_name = f'{conn_suffix}_gscale'
         
-    # rate = 10
-    # Add Poisson drives
-    weights_ampa_d1 = {'L2_pyramidal': theta_dict['L2e_distal'], 'L5_pyramidal': theta_dict['L5e_distal'],
-                       'L2_basket': theta_dict['L2i_distal']}
-    rates_d1 = {'L2_pyramidal': rate, 'L5_pyramidal': rate, 'L2_basket': rate}
+#         conn_indices = theta_dict['theta_extra'][conn_type_name]
+#         probability = theta_dict[conn_prob_name]
+#         gscale = theta_dict[conn_gscale_name]
+        
+#         for conn_idx in conn_indices:
+#             # Prune connections using internal connection_probability function
+#             _connection_probability(
+#                 net.connectivity[conn_idx], probability=probability, conn_seed=seed_array[seed_count])
+#             net.connectivity[conn_idx]['probability'] = probability
+#             net.connectivity[conn_idx]['nc_dict']['A_weight'] *= gscale
+#             seed_count = seed_count + 1
 
-    net.add_poisson_drive(
-        name='distal', tstart=0, tstop=None, rate_constant=rates_d1, location='distal', n_drive_cells='n_cells',
-        cell_specific=True, weights_ampa=weights_ampa_d1, weights_nmda=None, space_constant=1e50,
-        synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-1], conn_seed=seed_array[-2])
+#     for conn_idx in range(len(net.connectivity)):
+#         net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['theta_extra']['lamtha']          
+        
+#     # rate = 10
+#     # Add Poisson drives
+#     weights_ampa_d1 = {'L2_pyramidal': theta_dict['L2e_distal'], 'L5_pyramidal': theta_dict['L5e_distal'],
+#                        'L2_basket': theta_dict['L2i_distal']}
+#     rates_d1 = {'L2_pyramidal': rate, 'L5_pyramidal': rate, 'L2_basket': rate}
 
-    weights_ampa_p1 = {'L2_pyramidal': theta_dict['L2e_proximal'], 'L5_pyramidal': theta_dict['L5e_proximal'],
-                       'L2_basket': theta_dict['L2i_proximal'], 'L5_basket': theta_dict['L5i_proximal']}
-    rates_p1 = {'L2_pyramidal': rate, 'L5_pyramidal': rate, 'L2_basket': rate, 'L5_basket': rate}
+#     net.add_poisson_drive(
+#         name='distal', tstart=0, tstop=None, rate_constant=rates_d1, location='distal', n_drive_cells='n_cells',
+#         cell_specific=True, weights_ampa=weights_ampa_d1, weights_nmda=None, space_constant=1e50,
+#         synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-1], conn_seed=seed_array[-2])
 
-    net.add_poisson_drive(
-        name='proximal', tstart=0, tstop=None, rate_constant=rates_p1, location='proximal', n_drive_cells='n_cells',
-        cell_specific=True, weights_ampa=weights_ampa_p1, weights_nmda=None, space_constant=1e50,
-        synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-3], conn_seed=seed_array[-4])
+#     weights_ampa_p1 = {'L2_pyramidal': theta_dict['L2e_proximal'], 'L5_pyramidal': theta_dict['L5e_proximal'],
+#                        'L2_basket': theta_dict['L2i_proximal'], 'L5_basket': theta_dict['L5i_proximal']}
+#     rates_p1 = {'L2_pyramidal': rate, 'L5_pyramidal': rate, 'L2_basket': rate, 'L5_basket': rate}
+
+#     net.add_poisson_drive(
+#         name='proximal', tstart=0, tstop=None, rate_constant=rates_p1, location='proximal', n_drive_cells='n_cells',
+#         cell_specific=True, weights_ampa=weights_ampa_p1, weights_nmda=None, space_constant=1e50,
+#         synaptic_delays=0.0, probability=1.0, event_seed=seed_array[-3], conn_seed=seed_array[-4])
 
 
 #LSTM/GRU architecture for decoding
