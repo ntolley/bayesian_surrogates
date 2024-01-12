@@ -17,7 +17,7 @@ from utils import (SingleNeuron_Data, Network_Data, CellType_Dataset_Fast,
                    linear_scale_forward, log_scale_forward, UniformPrior, section_drive_param_function)
 import multiprocessing
 from joblib import Parallel, delayed
-n_sims = 100
+n_sims = 10000
 # device = torch.device("cuda:0")
 device = 'cpu'
 
@@ -70,19 +70,19 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     section_drive_param_function(net, theta_dict, rate=rate)
     dpl = simulate_dipole(net, dt=0.5, tstop=1000, record_vsec='all', record_isec='all', record_dcell=True)
 
-    g = net.cell_response.plot_spikes_raster(show=False)
-    g.savefig(f'{data_path}/raster_plots/raster_{sample_idx}.png')
-    plt.close()
+    # g = net.cell_response.plot_spikes_raster(show=False)
+    # g.savefig(f'{data_path}/raster_plots/raster_{sample_idx}.png')
+    # plt.close()
 
-    g = dpl[0].plot(show=False)
-    g.savefig(f'{data_path}/dipole_plots/dipole_{sample_idx}.png')
-    plt.close()
+    # g = dpl[0].plot(show=False)
+    # g.savefig(f'{data_path}/dipole_plots/dipole_{sample_idx}.png')
+    # plt.close()
 
-    g = dpl[0].plot_psd(fmin=0, fmax=100, show=False)
-    g.savefig(f'{data_path}/psd_plots/psd_{sample_idx}.png')
-    plt.close()
+    # g = dpl[0].plot_psd(fmin=0, fmax=100, show=False)
+    # g.savefig(f'{data_path}/psd_plots/psd_{sample_idx}.png')
+    # plt.close()
 
-    np.save(f'{data_path}/dipole_data/dipole_{sample_idx}.npy', dpl[0].data['agg'], )
+    # np.save(f'{data_path}/dipole_data/dipole_{sample_idx}.npy', dpl[0].data['agg'], )
 
     for cell_type in net.cell_types.keys():
         if transform_dict is None:

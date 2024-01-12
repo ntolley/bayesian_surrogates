@@ -1237,3 +1237,26 @@ class model_network(nn.Module):
             }
 
         return scaler_dict
+
+class ConcatTensorDataset(torch.utils.data.ConcatDataset):
+    r"""ConcatDataset of TensorDatasets which supports getting slices and index lists/arrays.
+    This dataset allows the use of slices, e.g. ds[2:4] and of arrays or lists of multiple indices
+    if all concatenated datasets are either TensorDatasets or Subset or other ConcatTensorDataset instances
+    which eventually contain only TensorDataset instances. If no slicing is needed,
+    this class works exactly like torch.utils.data.ConcatDataset and can concatenate arbitrary
+    (not just TensorDataset) datasets.
+    Args:
+        datasets (sequence): List of datasets to be concatenated
+    """
+    def __init__(self, datasets):
+        super(ConcatTensorDataset, self).__init__(datasets)
+
+    def __getitem__(self, idx):
+        if isinstance(idx, slice):
+            rows = [super(ConcatTensorDataset, self).__getitem__(i) for i in range(self.__len__())[idx]]
+            return tuple(map(torch.stack, zip(*rows)))
+        elif isinstance(idx, (list, np.ndarray)):
+            rows = [super(ConcatTensorDataset, self).__getitem__(i) for i in idx]
+            return tuple(map(torch.stack, zip(*rows)))
+        else:
+            return super(ConcatTensorDataset, self).__getitem__(idx)

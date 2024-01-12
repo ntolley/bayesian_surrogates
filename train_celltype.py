@@ -139,15 +139,15 @@ for dataset_type in dataset_type_list:
         #     sim_indices = np.where(dipole_array.max(axis=1) < 2e-3)[0]
         #     len(sim_indices)
         # else:
-        sim_indices = np.arange(100)
+        sim_indices = np.arange(10000)
 
         # Network size for different cell types
         if cell_type == 'L2_basket' or cell_type == 'L5_basket':
             hidden_dim = 8
             n_layers = 2
         else:
-            hidden_dim = 64
-            n_layers = 5
+            hidden_dim = 8
+            n_layers = 2
 
 
         # Set up training and validation datasets
@@ -169,8 +169,8 @@ for dataset_type in dataset_type_list:
         _, input_size = training_set[0][0].detach().cpu().numpy().shape
         _, output_size = training_set[0][1].detach().cpu().numpy().shape
 
-        batch_size = 500
-        num_cores = 8
+        batch_size = 5000
+        num_cores = 32
         pin_memory = True
 
         train_params = {'batch_size': batch_size, 'shuffle': True, 'pin_memory':pin_memory}
@@ -202,7 +202,7 @@ for dataset_type in dataset_type_list:
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
         #Train model
-        loss_dict = train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, 5, 10)
+        loss_dict = train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, 1, 10)
 
         torch.save(model.state_dict(), f'{dataset_type}_models/{cell_type}_{dataset_type}_model.pt')
         with open(f'{dataset_type}_models/{cell_type}_{dataset_type}_loss_dict.pkl', 'wb') as f:
