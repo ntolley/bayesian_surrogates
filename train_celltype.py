@@ -17,12 +17,15 @@ import scipy
 import utils
 import multiprocessing
 import dill
+from utils import ConcatTensorDataset
+from TCN.tcn import model_TCN
+
 device = torch.device("cuda:0")
 num_cores = multiprocessing.cpu_count()
 torch.backends.cudnn.enabled = True
 
 def train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, print_freq=10, early_stop=20):
-    kernel_size = model.kernel_size
+    seq_len = model.seq_len
 
     train_loss_array = []
     validation_loss_array = []
@@ -36,18 +39,13 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
         for batch_x, batch_y in training_generator:
             optimizer.zero_grad() # Clears existing gradients from previous epoch
             batch_x = batch_x.float().to(device)
+            batch_x = torch.flatten(batch_x.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
+
             batch_y = batch_y.float().to(device)
+            batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
 
-            output_sequence = []
-            h0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
-            c0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
-
-            for t in range(kernel_size, batch_x.size(1)-1):
-                output, h0, c0 = model(batch_x[:,(t-kernel_size):t, :], h0, c0)
-                output_sequence.append(output)
-
-            output_sequence = torch.cat(output_sequence, dim=1)
-            train_loss = criterion(output_sequence, batch_y[:,kernel_size+1:,:])
+            output_sequence = model(batch_x)
+            train_loss = criterion(output_sequence[:,-1,:], batch_y[:,-1,:])
 
             train_loss.backward() # Does backpropagation and calculates gradients
             optimizer.step() # Updates the weights accordingly
@@ -62,17 +60,13 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             #Generate train set predictions
             for batch_x, batch_y in validation_generator:
                 batch_x = batch_x.float().to(device)
+                batch_x = torch.flatten(batch_x.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
+
                 batch_y = batch_y.float().to(device)
+                batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
 
-                output_sequence = []
-                h0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
-                c0 = torch.zeros(model.n_layers, batch_x.size(0), model.hidden_dim).to(device)
-                for t in range(kernel_size, batch_x.size(1)):
-                    output, h0, c0 = model(batch_x[:,(t-kernel_size):t, :], h0, c0)
-                    output_sequence.append(output)
-
-                output_sequence = torch.cat(output_sequence, dim=1)
-                validation_loss = criterion(output_sequence, batch_y[:,kernel_size:,:])
+                output_sequence = model(batch_x)
+                validation_loss = criterion(output_sequence[:,-1,:], batch_y[:,-1,:])
 
                 validation_batch_loss.append(validation_loss.item())
 
@@ -115,97 +109,68 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
     'train_loss_array':train_loss_array, 'validation_loss_array':validation_loss_array, 'max_epochs':max_epochs}
     return loss_dict
 
-
-dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
-# dataset_type_list = ['connected']
-
-
+dataset_type_list = ['subthreshold', 'suprathreshold']
 cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 
+data_path = f'/users/ntolley/scratch/bayesian_surrogates'
 
-for dataset_type in dataset_type_list:
-    data_path = f'/users/ntolley/scratch/bayesian_surrogates/datasets_{dataset_type}'
-
-    # dipole_array = np.array(
-    #         [np.load(f'datasets_{dataset_type}/dipole_data/dipole_{sample_idx}.npy') for
-    #          sample_idx in range(100)])
-    for cell_type in cell_type_list:
-        print('\n')
-        print(f'___Training {dataset_type} {cell_type} model___')
-
-        # # Ensure simulations are subthreshold
-        # if dataset_type == 'subthreshold':
-        #     # Threshold for detecting spikes in dipole may need to be hand tuned based on number of cells
-        #     sim_indices = np.where(dipole_array.max(axis=1) < 2e-3)[0]
-        #     len(sim_indices)
-        # else:
-        sim_indices = np.arange(10000)
-
-        # Network size for different cell types
-        if cell_type == 'L2_basket' or cell_type == 'L5_basket':
-            hidden_dim = 8
-            n_layers = 2
-        else:
-            hidden_dim = 8
-            n_layers = 2
+for cell_type in cell_type_list:
+    print('\n')
+    print(f'___Training {cell_type} model___')
 
 
-        # Set up training and validation datasets
-        num_sims = len(sim_indices)
-        num_train = int(num_sims * 0.8)
-        num_validation = num_sims - num_train
+    sim_indices = np.arange(1000)
 
-        training_indices = sim_indices[0:num_train]
-        validation_indices = sim_indices[num_train:]
+    # Set up training and validation datasets
+    num_sims = len(sim_indices)
+    num_train = int(num_sims * 0.8)
+    num_validation = num_sims - num_train
 
+    training_indices = sim_indices[0:num_train]
+    validation_indices = sim_indices[num_train:]
+    training_set = ConcatTensorDataset([torch.load(f'{data_path}/datasets_{dataset_type}/training_data/'
+        f'{cell_type}_dataset_{idx}.pt') for idx in training_indices for dataset_type in dataset_type_list])
+    validation_set = ConcatTensorDataset([torch.load(f'{data_path}/datasets_{dataset_type}/training_data/'
+        f'{cell_type}_dataset_{idx}.pt') for idx in validation_indices for dataset_type in dataset_type_list])
 
-        training_set = torch.utils.data.ConcatDataset(
-            [torch.load(f'{data_path}/training_data/{cell_type}_dataset_{idx}.pt') for
-             idx in training_indices])
-        validation_set = torch.utils.data.ConcatDataset(
-            [torch.load(f'{data_path}/training_data/{cell_type}_dataset_{idx}.pt') for
-             idx in validation_indices])
+    _, input_size = training_set[0][0].detach().cpu().numpy().shape
+    _, output_size = training_set[0][1].detach().cpu().numpy().shape
 
-        _, input_size = training_set[0][0].detach().cpu().numpy().shape
-        _, output_size = training_set[0][1].detach().cpu().numpy().shape
+    batch_size = 100
+    num_cores = 32
+    pin_memory = False
 
-        batch_size = 5000
-        num_cores = 32
-        pin_memory = True
+    train_params = {'batch_size': batch_size, 'shuffle': True, 'pin_memory':pin_memory}
+    train_eval_params = {'batch_size': batch_size, 'shuffle': False, 'pin_memory':pin_memory}
+    validation_params = {'batch_size': batch_size, 'shuffle': True,  'pin_memory':pin_memory}
+    test_params = {'batch_size': batch_size, 'shuffle': False, 'pin_memory':pin_memory}
 
-        train_params = {'batch_size': batch_size, 'shuffle': True, 'pin_memory':pin_memory}
-        train_eval_params = {'batch_size': batch_size, 'shuffle': False, 'pin_memory':pin_memory}
-        validation_params = {'batch_size': batch_size, 'shuffle': True,  'pin_memory':pin_memory}
-        test_params = {'batch_size': batch_size, 'shuffle': False, 'pin_memory':pin_memory}
+    training_generator = torch.utils.data.DataLoader(training_set, **train_params)
+    training_eval_generator = torch.utils.data.DataLoader(training_set, **train_eval_params)
+    validation_generator = torch.utils.data.DataLoader(validation_set, **validation_params)
 
-        training_generator = torch.utils.data.DataLoader(training_set, **train_params)
-        training_eval_generator = torch.utils.data.DataLoader(training_set, **train_eval_params)
-        validation_generator = torch.utils.data.DataLoader(validation_set, **validation_params)
-
-        validation_generator = torch.utils.data.DataLoader(validation_set, **test_params)
+    validation_generator = torch.utils.data.DataLoader(validation_set, **test_params)
 
 
-        # Initialize and train model
-        model_pytorch = utils.model_celltype_lstm(input_size=input_size, output_size=output_size,
-                                          hidden_dim=hidden_dim, n_layers=n_layers, device=device)
-        model = torch.jit.script(model_pytorch).to(device)
+    # Initialize and train model
+    # model_pytorch = utils.model_celltype_lstm(input_size=input_size, output_size=output_size,
+    #                                   hidden_dim=hidden_dim, n_layers=n_layers, device=device)
+    # model = torch.jit.script(model_pytorch).to(device)
 
-        if dataset_type == 'suprathreshold':
-            model.load_state_dict(torch.load(f'subthreshold_models/{cell_type}_subthreshold_model.pt'))
-        if dataset_type == 'connected':
-            model.load_state_dict(torch.load(f'suprathreshold_models/{cell_type}_suprathreshold_model.pt'))
+    seq_len = 200
+    model = model_TCN(input_size, output_size, num_channels=[32,32,32], kernel_size=10, dropout=0.0, seq_len=seq_len).to(device)
 
-        lr = 0.01
-        weight_decay = 0
-        max_epochs = 1000
-        criterion = nn.MSELoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    lr = 0.01
+    weight_decay = 0
+    max_epochs = 1000
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
-        #Train model
-        loss_dict = train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, 1, 10)
+    #Train model
+    loss_dict = train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, 5, 10)
 
-        torch.save(model.state_dict(), f'{dataset_type}_models/{cell_type}_{dataset_type}_model.pt')
-        with open(f'{dataset_type}_models/{cell_type}_{dataset_type}_loss_dict.pkl', 'wb') as f:
-            dill.dump(loss_dict, f)
+    torch.save(model.state_dict(), f'subthreshold_models/{cell_type}_subthreshold_model.pt')
+    with open(f'subthreshold_models/{cell_type}_subthreshold_loss_dict.pkl', 'wb') as f:
+        dill.dump(loss_dict, f)
 
-        del training_set, validation_set, training_generator, validation_generator, model_pytorch, model, loss_dict,
+    del training_set, validation_set, training_generator, validation_generator, model, loss_dict,

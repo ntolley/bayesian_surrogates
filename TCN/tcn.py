@@ -37,25 +37,25 @@ class TemporalBlock(nn.Module):
 
     def init_weights(self):
         # Initialize convolutional kernels as an exp2syn with random decays
-        with torch.no_grad():
-            self.conv1.weight.copy_(self.exp2syn_weights(self.conv1.weight.data))
-            self.conv2.weight.copy_(self.exp2syn_weights(self.conv2.weight.data))
-            if self.downsample is not None:
-                self.downsample.weight.copy_(self.exp2syn_weights(self.downsample.weight.data))
+        # with torch.no_grad():
+        #     self.conv1.weight.copy_(self.exp2syn_weights(self.conv1.weight.data))
+        #     self.conv2.weight.copy_(self.exp2syn_weights(self.conv2.weight.data))
+        #     if self.downsample is not None:
+        #         self.downsample.weight.data.normal_(0, 0.01)
 
-        # self.conv1.weight.data.normal_(0, 0.01)
-        # self.conv2.weight.data.normal_(0, 0.01)
-        # if self.downsample is not None:
-        #     self.downsample.weight.data.normal_(0, 0.01)
+        self.conv1.weight.data.normal_(0, 0.01)
+        self.conv2.weight.data.normal_(0, 0.01)
+        if self.downsample is not None:
+            self.downsample.weight.data.normal_(0, 0.01)
 
     def exp2syn_weights(self, weight):
         weight_shape = weight.shape
 
         t_vec = torch.arange(0, weight_shape[2] + 1, 1).tile((weight_shape[0], weight_shape[1], 1))
-        tau1 = torch.rand((weight_shape[1], weight_shape[0])).tile((weight_shape[2] + 1, 1, 1)).transpose(0,2) * 5
-        tau2 = tau1 + (torch.rand((weight_shape[1], weight_shape[0])).tile((weight_shape[2] + 1,1,1)).transpose(0,2) * 5)
+        tau1 = torch.rand((weight_shape[1], weight_shape[0])).tile((weight_shape[2] + 1, 1, 1)).transpose(0,2) * 20
+        tau2 = tau1 + (torch.rand((weight_shape[1], weight_shape[0])).tile((weight_shape[2] + 1,1,1)).transpose(0,2) * 20)
 
-        return self.get_kernel(t_vec, tau1, tau2).flip(dims=(2,))[:, :, :-1]
+        return self.get_kernel(t_vec, tau1, tau2).flip(dims=(2,))[:, :, :-1] * torch.rand((1,))
 
 
     def get_kernel(self, t_vec, tau1, tau2):
@@ -84,3 +84,27 @@ class TemporalConvNet(nn.Module):
 
     def forward(self, x):
         return self.network(x)
+
+class model_TCN(nn.Module):
+    def __init__(self, input_size, output_size, num_channels, kernel_size, dropout, seq_len):
+        super(TCN, self).__init__()
+        self.hidden_size = 128
+        self.tcn = TemporalConvNet(input_size, num_channels, kernel_size, dropout=dropout)
+        self.linear1 = nn.Linear(num_channels[-1], self.hidden_size)
+        self.linear2 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.linear3 = nn.Linear(self.hidden_size, output_size)
+        self.tanh = nn.Tanh()
+        self.seq_len = seq_len
+        self.kernel_size = kernel_size
+        self.float()
+
+    def forward(self, x):
+        # x needs to have dimension (N, C, L) in order to be passed into CNN
+        output = self.tcn(x.transpose(1, 2)).transpose(1, 2)
+        output = self.tanh(output)
+        output = self.linear1(output)
+        output = self.tanh(output)
+        output = self.linear2(output)
+        output = self.tanh(output)
+        output = self.linear3(output)
+        return output
