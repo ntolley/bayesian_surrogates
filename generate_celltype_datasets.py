@@ -17,12 +17,12 @@ from utils import (SingleNeuron_Data, Network_Data, CellType_Dataset_Fast,
                    linear_scale_forward, log_scale_forward, UniformPrior, section_drive_param_function)
 import multiprocessing
 from joblib import Parallel, delayed
-n_sims = 1000
+n_sims = 10_000
 # device = torch.device("cuda:0")
 device = 'cpu'
 
 # num_cores = multiprocessing.cpu_count()
-num_cores = 32
+num_cores = 64
 
 
 # Define simulation function
@@ -102,7 +102,7 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
 # Generate subthreshold dataset
 #------------------------------
 suffix = 'suprathreshold'
-rate = 10.0
+rate = 20.0
 net = calcium_model()
 
 cell_type_lookup = {
@@ -123,7 +123,7 @@ for conn_idx in range(len(net.connectivity)):
     conn_name = f'{src_type}_{target_type}_{receptor}_{loc}'
     
     prior_dict[f'{conn_name}_gbar'] = {'bounds': (-4, 0), 'rescale_function': log_scale_forward}
-    prior_dict[f'{conn_name}_prob'] = {'bounds': (0, 1), 'rescale_function': linear_scale_forward}
+    prior_dict[f'{conn_name}_prob'] = {'bounds': (0.9, 1), 'rescale_function': linear_scale_forward}
 
 # Drives
 for cell_type in net.cell_types.keys():
@@ -131,14 +131,14 @@ for cell_type in net.cell_types.keys():
         for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
             drive_name = f'{cell_type}_{sec_name}_{syn_name}'
             prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4,-0), 'rescale_function': log_scale_forward}
-            prior_dict[f'{drive_name}_prob'] = {'bounds': (0, 1), 'rescale_function': linear_scale_forward}
+            prior_dict[f'{drive_name}_prob'] = {'bounds': (0.9, 1), 'rescale_function': linear_scale_forward}
 
 
 prior = UniformPrior(parameters=list(prior_dict.keys()))
 theta_samples = prior.sample((n_sims,))
 
 # First sample used to fit transformers
-theta_samples[0,:] = torch.from_numpy(np.repeat(0.7, theta_samples.shape[1]))
+theta_samples[0,:] = torch.from_numpy(np.repeat(0.99, theta_samples.shape[1]))
 run_hnn(theta_samples[0, :], 0, prior_dict, transform_dict=None, suffix=suffix, rate=rate)
 
 transform_dict = {}
@@ -168,7 +168,7 @@ for cell_type in net.cell_types.keys():
         for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
             drive_name = f'{cell_type}_{sec_name}_{syn_name}'
             prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4, -3), 'rescale_function': log_scale_forward}
-            prior_dict[f'{drive_name}_prob'] = {'bounds': (0, 1), 'rescale_function': linear_scale_forward}
+            prior_dict[f'{drive_name}_prob'] = {'bounds': (0.9, 1), 'rescale_function': linear_scale_forward}
 
 # update_keys = ['L2e_distal', 'L2i_distal', 'L5e_distal', 'L5i_distal',
 #                'L2e_proximal', 'L2i_proximal', 'L5e_proximal', 'L5i_proximal']

@@ -45,7 +45,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
 
             output_sequence = model(batch_x)
-            train_loss = criterion(output_sequence[:,-1,:], batch_y[:,-1,:])
+            train_loss = criterion(output_sequence[:,-300:,:], batch_y[:,-300:,:])
 
             train_loss.backward() # Does backpropagation and calculates gradients
             optimizer.step() # Updates the weights accordingly
@@ -66,7 +66,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
                 batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
 
                 output_sequence = model(batch_x)
-                validation_loss = criterion(output_sequence[:,-1,:], batch_y[:,-1,:])
+                validation_loss = criterion(output_sequence[:,-300:,:], batch_y[:,-300:,:])
 
                 validation_batch_loss.append(validation_loss.item())
 
@@ -119,7 +119,7 @@ for cell_type in cell_type_list:
     print(f'___Training {cell_type} model___')
 
 
-    sim_indices = np.arange(1000)
+    sim_indices = np.arange(100)
 
     # Set up training and validation datasets
     num_sims = len(sim_indices)
@@ -157,8 +157,8 @@ for cell_type in cell_type_list:
     #                                   hidden_dim=hidden_dim, n_layers=n_layers, device=device)
     # model = torch.jit.script(model_pytorch).to(device)
 
-    seq_len = 200
-    model = model_TCN(input_size, output_size, num_channels=[32,32,32], kernel_size=10, dropout=0.0, seq_len=seq_len).to(device)
+    seq_len = 400
+    model = model_TCN(input_size, output_size, num_channels=[32,32,32], kernel_size=10, dropout=0.2, seq_len=seq_len).to(device)
 
     lr = 0.01
     weight_decay = 0

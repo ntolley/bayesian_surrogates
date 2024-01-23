@@ -85,7 +85,7 @@ class TemporalConvNet(nn.Module):
     def forward(self, x):
         return self.network(x)
 
-class model_TCN(nn.Module):
+class TCN(nn.Module):
     def __init__(self, input_size, output_size, num_channels, kernel_size, dropout, seq_len):
         super(TCN, self).__init__()
         self.hidden_size = 128
@@ -93,7 +93,11 @@ class model_TCN(nn.Module):
         self.linear1 = nn.Linear(num_channels[-1], self.hidden_size)
         self.linear2 = nn.Linear(self.hidden_size, self.hidden_size)
         self.linear3 = nn.Linear(self.hidden_size, output_size)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
         self.tanh = nn.Tanh()
+        self.elu = nn.ELU()
         self.seq_len = seq_len
         self.kernel_size = kernel_size
         self.float()
@@ -104,7 +108,9 @@ class model_TCN(nn.Module):
         output = self.tanh(output)
         output = self.linear1(output)
         output = self.tanh(output)
+        output = self.dropout1(output)
         output = self.linear2(output)
         output = self.tanh(output)
+        output = self.dropout2(output)
         output = self.linear3(output)
         return output
