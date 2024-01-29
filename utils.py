@@ -405,6 +405,7 @@ class SingleNeuron_Data:
 
         spike_times_gid = spike_times[spike_gids == self.gid]
         spikes_binned = np.histogram(spike_times_gid, bins=net.cell_response.times)[0]
+        # spikes_binned[spikes_binned != 0] = 1.0
 
         spikes_binned = np.concatenate([spikes_binned, [0.0]])
         return spikes_binned
@@ -449,7 +450,7 @@ class Network_Data:
 
                 # Loop through all target gids and append spikes to appropriate array
                 for target_gid in target_gid_list:
-                    conn_spikes = self.neuron_data_dict[src_gid].spikes_binned
+                    conn_spikes = self.neuron_data_dict[src_gid].spikes_binned.copy()
 
                     target_type = conn['target_type']
                     receptor = conn['receptor']
@@ -641,7 +642,7 @@ class UniformPrior(sbi_utils.BoxUniform):
 # Poisson drive to all synapses and random connections
 def section_drive_param_function(net, theta_dict, rate=10):
     seed_rng = np.random.default_rng(theta_dict['theta_extra']['sample_idx'])
-    seed_array = seed_rng.integers(10e5, size=100)
+    seed_array = seed_rng.integers(10e5, size=1000)
 
     seed_count = 0
     
@@ -664,9 +665,9 @@ def section_drive_param_function(net, theta_dict, rate=10):
         net.connectivity[conn_idx]['nc_dict']['A_weight'] = gbar
         seed_count = seed_count + 1
 
-    for conn_idx in range(len(net.connectivity)):
+    # for conn_idx in range(len(net.connectivity)):
         # net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['theta_extra']['lamtha']
-        net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['lamtha']
+        # net.connectivity[conn_idx]['nc_dict']['lamtha'] = theta_dict['lamtha']
 
     # Add drives
     valid_drive_dict = theta_dict['theta_extra']['valid_drive_dict']
@@ -695,7 +696,9 @@ def section_drive_param_function(net, theta_dict, rate=10):
             name=drive_name, tstart=0, tstop=None, rate_constant=rate, location=location, n_drive_cells='n_cells',
             cell_specific=True, weights_ampa=weights_ampa, weights_nmda=weights_nmda,
             weights_gabaa=weights_gabaa, weights_gabab=weights_gabab, space_constant=1e50,
-            synaptic_delays=0.0, probability=probability, event_seed=seed_array[-1], conn_seed=seed_array[-2])
+            synaptic_delays=0.0, probability=probability, event_seed=seed_array[seed_count], conn_seed=seed_array[seed_count+1])
+
+        seed_count = seed_count + 2
 
 
 # def beta_tuning_param_function(net, theta_dict, rate=10):

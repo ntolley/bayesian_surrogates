@@ -17,7 +17,7 @@ from utils import (SingleNeuron_Data, Network_Data, CellType_Dataset_Fast,
                    linear_scale_forward, log_scale_forward, UniformPrior, section_drive_param_function)
 import multiprocessing
 from joblib import Parallel, delayed
-n_sims = 10_000
+n_sims = 1000
 # device = torch.device("cuda:0")
 device = 'cpu'
 
@@ -111,7 +111,7 @@ cell_type_lookup = {
 
 
 prior_dict = dict()
-prior_dict['lamtha'] = {'bounds': (0, 10), 'rescale_function': linear_scale_forward}
+# prior_dict['lamtha'] = {'bounds': (0, 10), 'rescale_function': linear_scale_forward}
 
 # Connections
 for conn_idx in range(len(net.connectivity)):
@@ -122,16 +122,16 @@ for conn_idx in range(len(net.connectivity)):
     
     conn_name = f'{src_type}_{target_type}_{receptor}_{loc}'
     
-    prior_dict[f'{conn_name}_gbar'] = {'bounds': (-4, 0), 'rescale_function': log_scale_forward}
-    prior_dict[f'{conn_name}_prob'] = {'bounds': (0.9, 1), 'rescale_function': linear_scale_forward}
+    prior_dict[f'{conn_name}_gbar'] = {'bounds': (-4, -1), 'rescale_function': log_scale_forward}
+    prior_dict[f'{conn_name}_prob'] = {'bounds': (0.1, 0.9), 'rescale_function': linear_scale_forward}
 
 # Drives
 for cell_type in net.cell_types.keys():
     for sec_name in net.cell_types[cell_type].sections.keys():
         for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
             drive_name = f'{cell_type}_{sec_name}_{syn_name}'
-            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4,-0), 'rescale_function': log_scale_forward}
-            prior_dict[f'{drive_name}_prob'] = {'bounds': (0.9, 1), 'rescale_function': linear_scale_forward}
+            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4,-1), 'rescale_function': log_scale_forward}
+            prior_dict[f'{drive_name}_prob'] = {'bounds': (0.1, 0.9), 'rescale_function': linear_scale_forward}
 
 
 prior = UniformPrior(parameters=list(prior_dict.keys()))
@@ -143,7 +143,7 @@ run_hnn(theta_samples[0, :], 0, prior_dict, transform_dict=None, suffix=suffix, 
 
 transform_dict = {}
 for cell_type in net.cell_types.keys():
-    dataset = torch.load(f'/users/ntolley/scratch/bayesian_surrogates/datasets_subthreshold/training_data/{cell_type}_dataset_0.pt')
+    dataset = torch.load(f'/users/ntolley/scratch/bayesian_surrogates/datasets_suprathreshold/training_data/{cell_type}_dataset_0.pt')
     transform_dict[cell_type] = {'input_spike_scaler': dataset.input_spike_scaler,
                                  'vsec_scaler': dataset.vsec_scaler,
                                  'isec_scaler': dataset.isec_scaler}
@@ -160,7 +160,7 @@ Parallel(n_jobs=num_cores)(delayed(run_hnn)(
 suffix = 'subthreshold'
 prior = UniformPrior(parameters=list(prior_dict.keys()))
 theta_samples = prior.sample((n_sims,))
-rate = 10.0
+rate = 20.0
 
 # Drives
 for cell_type in net.cell_types.keys():
@@ -170,24 +170,42 @@ for cell_type in net.cell_types.keys():
             prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4, -3), 'rescale_function': log_scale_forward}
             prior_dict[f'{drive_name}_prob'] = {'bounds': (0.9, 1), 'rescale_function': linear_scale_forward}
 
-# update_keys = ['L2e_distal', 'L2i_distal', 'L5e_distal', 'L5i_distal',
-#                'L2e_proximal', 'L2i_proximal', 'L5e_proximal', 'L5i_proximal']
-# for key in update_keys:
-#     prior_dict[key]['bounds'] = (lower_g, upper_g)
 
 Parallel(n_jobs=num_cores)(delayed(run_hnn)(
     thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
     (sample_idx, thetai) in enumerate(theta_samples))
 
 
-# # Generate connected dataset
-# #---------------------------
-# suffix = 'connected'
-# prior = UniformPrior(parameters=list(prior_dict.keys()))
-# theta_samples = prior.sample((n_sims,))
+# Generate connected dataset
+#---------------------------
+suffix = 'connected'
+prior = UniformPrior(parameters=list(prior_dict.keys()))
+theta_samples = prior.sample((n_sims,))
 
-# Parallel(n_jobs=num_cores)(delayed(run_hnn)(
-#     thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
-#     (sample_idx, thetai) in enumerate(theta_samples))
+rate = 10.0
+
+# Drives
+for cell_type in net.cell_types.keys():
+    for sec_name in net.cell_types[cell_type].sections.keys():
+        for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
+            drive_name = f'{cell_type}_{sec_name}_{syn_name}'
+            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4, -2), 'rescale_function': log_scale_forward}
+            prior_dict[f'{drive_name}_prob'] = {'bounds': (0.1, 0.5), 'rescale_function': linear_scale_forward}
+
+# Connections
+for conn_idx in range(len(net.connectivity)):
+    src_type = cell_type_lookup[net.connectivity[conn_idx]['src_type']]
+    target_type = cell_type_lookup[net.connectivity[conn_idx]['target_type']]
+    receptor = net.connectivity[conn_idx]['receptor']
+    loc = net.connectivity[conn_idx]['loc']
+    
+    conn_name = f'{src_type}_{target_type}_{receptor}_{loc}'
+    
+    prior_dict[f'{conn_name}_gbar'] = {'bounds': (-4, -2), 'rescale_function': log_scale_forward}
+    prior_dict[f'{conn_name}_prob'] = {'bounds': (0.1, 0.5), 'rescale_function': linear_scale_forward}
+
+Parallel(n_jobs=num_cores)(delayed(run_hnn)(
+    thetai, sample_idx, prior_dict, transform_dict, suffix, rate) for
+    (sample_idx, thetai) in enumerate(theta_samples))
 
 

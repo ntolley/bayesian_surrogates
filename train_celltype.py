@@ -27,6 +27,7 @@ torch.backends.cudnn.enabled = True
 def train_validate_model(model, optimizer, criterion, max_epochs, training_generator, validation_generator, device, print_freq=10, early_stop=20):
     seq_len = model.seq_len
 
+    step = 200
     train_loss_array = []
     validation_loss_array = []
     # Loop over epochs
@@ -39,10 +40,10 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
         for batch_x, batch_y in training_generator:
             optimizer.zero_grad() # Clears existing gradients from previous epoch
             batch_x = batch_x.float().to(device)
-            batch_x = torch.flatten(batch_x.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
+            batch_x = torch.flatten(batch_x.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
             batch_y = batch_y.float().to(device)
-            batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
+            batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
             output_sequence = model(batch_x)
             train_loss = criterion(output_sequence[:,-300:,:], batch_y[:,-300:,:])
@@ -60,10 +61,10 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             #Generate train set predictions
             for batch_x, batch_y in validation_generator:
                 batch_x = batch_x.float().to(device)
-                batch_x = torch.flatten(batch_x.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
+                batch_x = torch.flatten(batch_x.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
                 batch_y = batch_y.float().to(device)
-                batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=3), start_dim=0, end_dim=1).transpose(1,2)
+                batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
                 output_sequence = model(batch_x)
                 validation_loss = criterion(output_sequence[:,-300:,:], batch_y[:,-300:,:])
@@ -109,8 +110,12 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
     'train_loss_array':train_loss_array, 'validation_loss_array':validation_loss_array, 'max_epochs':max_epochs}
     return loss_dict
 
-dataset_type_list = ['subthreshold', 'suprathreshold']
+dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
 cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
+# cell_type_list = ['L5_pyramidal']
+# cell_type_list = ['L2_pyramidal']
+# cell_type_list = ['L5_basket', 'L2_basket']
+
 
 data_path = f'/users/ntolley/scratch/bayesian_surrogates'
 
@@ -119,7 +124,7 @@ for cell_type in cell_type_list:
     print(f'___Training {cell_type} model___')
 
 
-    sim_indices = np.arange(100)
+    sim_indices = np.arange(1000)
 
     # Set up training and validation datasets
     num_sims = len(sim_indices)
@@ -130,8 +135,10 @@ for cell_type in cell_type_list:
     validation_indices = sim_indices[num_train:]
     training_set = ConcatTensorDataset([torch.load(f'{data_path}/datasets_{dataset_type}/training_data/'
         f'{cell_type}_dataset_{idx}.pt') for idx in training_indices for dataset_type in dataset_type_list])
+    print('Training Data loaded')
     validation_set = ConcatTensorDataset([torch.load(f'{data_path}/datasets_{dataset_type}/training_data/'
         f'{cell_type}_dataset_{idx}.pt') for idx in validation_indices for dataset_type in dataset_type_list])
+    print('Validation Data loaded')
 
     _, input_size = training_set[0][0].detach().cpu().numpy().shape
     _, output_size = training_set[0][1].detach().cpu().numpy().shape
@@ -160,7 +167,7 @@ for cell_type in cell_type_list:
     seq_len = 400
     model = model_TCN(input_size, output_size, num_channels=[32,32,32], kernel_size=10, dropout=0.2, seq_len=seq_len).to(device)
 
-    lr = 0.01
+    lr = 0.001
     weight_decay = 0
     max_epochs = 1000
     criterion = nn.MSELoss()
