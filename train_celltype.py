@@ -28,6 +28,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
     seq_len = model.seq_len
 
     step = 200
+    cost_len = 200
     train_loss_array = []
     validation_loss_array = []
     # Loop over epochs
@@ -38,6 +39,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
         train_batch_loss = []
         validation_batch_loss = []
         for batch_x, batch_y in training_generator:
+
             optimizer.zero_grad() # Clears existing gradients from previous epoch
             batch_x = batch_x.float().to(device)
             batch_x = torch.flatten(batch_x.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
@@ -45,8 +47,11 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             batch_y = batch_y.float().to(device)
             batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
-            output_sequence = model(batch_x)
-            train_loss = criterion(output_sequence[:,-300:,:], batch_y[:,-300:,:])
+            h0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
+            c0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
+
+            output_sequence = model(batch_x, h0, c0)
+            train_loss = criterion(output_sequence[:,-cost_len:,:], batch_y[:,-cost_len:,:])
 
             train_loss.backward() # Does backpropagation and calculates gradients
             optimizer.step() # Updates the weights accordingly
@@ -66,8 +71,11 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
                 batch_y = batch_y.float().to(device)
                 batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
-                output_sequence = model(batch_x)
-                validation_loss = criterion(output_sequence[:,-300:,:], batch_y[:,-300:,:])
+                h0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
+                c0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
+
+                output_sequence = model(batch_x, h0, c0)
+                validation_loss = criterion(output_sequence[:,-cost_len:,:], batch_y[:,-cost_len:,:])
 
                 validation_batch_loss.append(validation_loss.item())
 
@@ -110,11 +118,13 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
     'train_loss_array':train_loss_array, 'validation_loss_array':validation_loss_array, 'max_epochs':max_epochs}
     return loss_dict
 
+
 dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
+# dataset_type_list = ['subthreshold', 'connected']
 cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 # cell_type_list = ['L5_pyramidal']
 # cell_type_list = ['L2_pyramidal']
-# cell_type_list = ['L5_basket', 'L2_basket']
+# cell_type_list = ['L5_pyramidal']
 
 
 data_path = f'/users/ntolley/scratch/bayesian_surrogates'
@@ -124,7 +134,7 @@ for cell_type in cell_type_list:
     print(f'___Training {cell_type} model___')
 
 
-    sim_indices = np.arange(1000)
+    sim_indices = np.arange(100)
 
     # Set up training and validation datasets
     num_sims = len(sim_indices)
@@ -143,7 +153,7 @@ for cell_type in cell_type_list:
     _, input_size = training_set[0][0].detach().cpu().numpy().shape
     _, output_size = training_set[0][1].detach().cpu().numpy().shape
 
-    batch_size = 100
+    batch_size = 200
     num_cores = 32
     pin_memory = False
 
@@ -164,8 +174,9 @@ for cell_type in cell_type_list:
     #                                   hidden_dim=hidden_dim, n_layers=n_layers, device=device)
     # model = torch.jit.script(model_pytorch).to(device)
 
-    seq_len = 400
-    model = model_TCN(input_size, output_size, num_channels=[32,32,32], kernel_size=10, dropout=0.2, seq_len=seq_len).to(device)
+    seq_len = 800
+    model = model_TCN(input_size, output_size, num_channels=[32]*3, kernel_size=20, dropout=0.2, seq_len=seq_len,
+                    hidden_size=128, n_lstm_layers=2, lstm_hidden_dim=32).to(device)
 
     lr = 0.001
     weight_decay = 0

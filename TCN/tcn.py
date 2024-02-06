@@ -36,27 +36,10 @@ class TemporalBlock(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        # Initialize convolutional kernels as an exp2syn with random decays
-        # with torch.no_grad():
-        #     self.conv1.weight.copy_(self.exp2syn_weights(self.conv1.weight.data))
-        #     self.conv2.weight.copy_(self.exp2syn_weights(self.conv2.weight.data))
-        #     if self.downsample is not None:
-        #         self.downsample.weight.data.normal_(0, 0.01)
-
         self.conv1.weight.data.normal_(0, 0.01)
         self.conv2.weight.data.normal_(0, 0.01)
         if self.downsample is not None:
             self.downsample.weight.data.normal_(0, 0.01)
-
-    def exp2syn_weights(self, weight):
-        weight_shape = weight.shape
-
-        t_vec = torch.arange(0, weight_shape[2] + 1, 1).tile((weight_shape[0], weight_shape[1], 1))
-        tau1 = torch.rand((weight_shape[1], weight_shape[0])).tile((weight_shape[2] + 1, 1, 1)).transpose(0,2) * 20
-        tau2 = tau1 + (torch.rand((weight_shape[1], weight_shape[0])).tile((weight_shape[2] + 1,1,1)).transpose(0,2) * 20)
-
-        return self.get_kernel(t_vec, tau1, tau2).flip(dims=(2,))[:, :, :-1] * torch.rand((1,))
-
 
     def get_kernel(self, t_vec, tau1, tau2):
         G = tau2/(tau2-tau1)*(-torch.exp(-t_vec/tau1) + torch.exp(-t_vec/tau2))
@@ -83,10 +66,12 @@ class TemporalConvNet(nn.Module):
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.network(x)
+        out = self.network(x)
+        return out
 
 class model_TCN(nn.Module):
-    def __init__(self, input_size, output_size, num_channels, kernel_size, dropout, seq_len):
+    def __init__(self, input_size, output_size, seq_len, num_channels=[32]*3, kernel_size=20,
+                 hidden_size=128, dropout=0.2, n_lstm_layers=2, lstm_hidden_dim=32):
         super(model_TCN, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -94,30 +79,55 @@ class model_TCN(nn.Module):
         self.kernel_size = kernel_size
         self.dropout = dropout
         self.seq_len = seq_len
+        self.n_lstm_layers = n_lstm_layers
+        self.lstm_hidden_dim = lstm_hidden_dim 
 
-        self.hidden_size = 128
+        self.hidden_size = hidden_size
         self.tcn = TemporalConvNet(input_size, num_channels, kernel_size, dropout=dropout)
-        self.linear1 = nn.Linear(num_channels[-1], self.hidden_size)
-        self.linear2 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.linear3 = nn.Linear(self.hidden_size, output_size)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
 
         self.tanh = nn.Tanh()
-        self.elu = nn.ELU()
+
+        layer_size = [hidden_size] * 3
+
         self.seq_len = seq_len
         self.kernel_size = kernel_size
         self.float()
 
-    def forward(self, x):
+        self.fc_mid = model_ann(num_channels[-1], lstm_hidden_dim, layer_size)
+        self.lstm = nn.LSTM(input_size=num_channels[-1], hidden_size=lstm_hidden_dim, num_layers=n_lstm_layers, batch_first=True, dropout=dropout)
+        self.fc_out = model_ann(lstm_hidden_dim, output_size, layer_size)
+
+    def forward(self, x, h, c):
         # x needs to have dimension (N, C, L) in order to be passed into CNN
-        output = self.tcn(x.transpose(1, 2)).transpose(1, 2)
-        output = self.tanh(output)
-        output = self.linear1(output)
-        output = self.tanh(output)
-        # output = self.dropout1(output)
-        output = self.linear2(output)
-        output = self.tanh(output)
-        # output = self.dropout2(output)
-        output = self.linear3(output)
-        return output
+        out = self.tcn(x.transpose(1, 2)).transpose(1, 2)
+        out = self.fc_mid(out)
+        out, (h, c) =  self.lstm(out, (h, c))
+        out = self.fc_out(out)
+        return out
+
+
+class model_ann(nn.Module):
+    def __init__(self, input_size, output_size, layer_size):
+        super(model_ann, self).__init__()
+        self.input_size,  self.layer_size, self.output_size = input_size, layer_size, output_size
+
+        #List layer sizes
+        self.layer_hidden = [input_size] + layer_size + [output_size]
+        
+        #Compile layers into lists
+        layer_list = list()
+        for idx in range(len(self.layer_hidden)-2):
+            layer_list.append(nn.Linear(in_features=self.layer_hidden[idx], out_features=self.layer_hidden[idx+1]))
+            layer_list.append(nn.Tanh())
+
+        layer_list.append(nn.Linear(in_features=self.layer_hidden[-2], out_features=self.layer_hidden[-1]))
+        
+        self.fc = nn.Sequential(*layer_list)
+        
+
+    def forward(self, x):
+        # #Encoding step
+        # for idx in range(len(self.layer_list)):
+        #     x = F.tanh(self.layer_list[idx](x))
+
+        return self.fc(x)

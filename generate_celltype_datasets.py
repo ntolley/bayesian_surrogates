@@ -22,7 +22,7 @@ n_sims = 1000
 device = 'cpu'
 
 # num_cores = multiprocessing.cpu_count()
-num_cores = 64
+num_cores = 32
 
 
 # Define simulation function
@@ -68,7 +68,7 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
     theta_dict['theta_extra'] = theta_extra
 
     section_drive_param_function(net, theta_dict, rate=rate)
-    dpl = simulate_dipole(net, dt=0.5, tstop=500, record_vsec='all', record_isec='all', record_dcell=True)
+    dpl = simulate_dipole(net, dt=0.5, tstop=1000, record_vsec='all', record_isec='all', record_dcell=True)
 
     # g = net.cell_response.plot_spikes_raster(show=False)
     # g.savefig(f'{data_path}/raster_plots/raster_{sample_idx}.png')
@@ -93,15 +93,15 @@ def run_hnn(thetai, sample_idx, prior_dict, transform_dict=None, suffix='subthre
             isec_scaler = transform_dict[cell_type]['isec_scaler']
 
         training_set = utils.CellType_Dataset_Fast(
-            net, cell_type=cell_type, window_size=1000, data_step_size=1000,
+            net, cell_type=cell_type, window_size=2000, data_step_size=2000,
             input_spike_scaler=input_spike_scaler, vsec_scaler=vsec_scaler, isec_scaler=isec_scaler,
-            soma_filter=False, device='cpu')
+            soma_filter=True, device='cpu')
         torch.save(training_set, f'{data_path}/training_data/{cell_type}_dataset_{sample_idx}.pt')
 
 
 # Generate subthreshold dataset
 #------------------------------
-suffix = 'suprathreshold'
+suffix = 'subthreshold'
 rate = 20.0
 net = calcium_model()
 
@@ -130,7 +130,7 @@ for cell_type in net.cell_types.keys():
     for sec_name in net.cell_types[cell_type].sections.keys():
         for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
             drive_name = f'{cell_type}_{sec_name}_{syn_name}'
-            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4,-1), 'rescale_function': log_scale_forward}
+            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4,-3), 'rescale_function': log_scale_forward}
             prior_dict[f'{drive_name}_prob'] = {'bounds': (0.1, 0.9), 'rescale_function': linear_scale_forward}
 
 
@@ -143,7 +143,7 @@ run_hnn(theta_samples[0, :], 0, prior_dict, transform_dict=None, suffix=suffix, 
 
 transform_dict = {}
 for cell_type in net.cell_types.keys():
-    dataset = torch.load(f'/users/ntolley/scratch/bayesian_surrogates/datasets_suprathreshold/training_data/{cell_type}_dataset_0.pt')
+    dataset = torch.load(f'/users/ntolley/scratch/bayesian_surrogates/datasets_{suffix}/training_data/{cell_type}_dataset_0.pt')
     transform_dict[cell_type] = {'input_spike_scaler': dataset.input_spike_scaler,
                                  'vsec_scaler': dataset.vsec_scaler,
                                  'isec_scaler': dataset.isec_scaler}
@@ -157,7 +157,7 @@ Parallel(n_jobs=num_cores)(delayed(run_hnn)(
 
 # Generate suprathreshold dataset
 #------------------------------
-suffix = 'subthreshold'
+suffix = 'suprathreshold'
 prior = UniformPrior(parameters=list(prior_dict.keys()))
 theta_samples = prior.sample((n_sims,))
 rate = 20.0
@@ -167,8 +167,8 @@ for cell_type in net.cell_types.keys():
     for sec_name in net.cell_types[cell_type].sections.keys():
         for syn_name in net.cell_types[cell_type].sections[sec_name].syns:
             drive_name = f'{cell_type}_{sec_name}_{syn_name}'
-            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4, -3), 'rescale_function': log_scale_forward}
-            prior_dict[f'{drive_name}_prob'] = {'bounds': (0.9, 1), 'rescale_function': linear_scale_forward}
+            prior_dict[f'{drive_name}_gbar'] = {'bounds': (-4, -1), 'rescale_function': log_scale_forward}
+            prior_dict[f'{drive_name}_prob'] = {'bounds': (0.1, 0.9), 'rescale_function': linear_scale_forward}
 
 
 Parallel(n_jobs=num_cores)(delayed(run_hnn)(
