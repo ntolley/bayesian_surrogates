@@ -50,7 +50,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             h0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
             c0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
 
-            output_sequence = model(batch_x, h0, c0)
+            output_sequence, _, _ = model(batch_x, h0, c0)
             train_loss = criterion(output_sequence[:,-cost_len:,:], batch_y[:,-cost_len:,:])
 
             train_loss.backward() # Does backpropagation and calculates gradients
@@ -74,7 +74,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
                 h0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
                 c0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
 
-                output_sequence = model(batch_x, h0, c0)
+                output_sequence, _, _ = model(batch_x, h0, c0)
                 validation_loss = criterion(output_sequence[:,-cost_len:,:], batch_y[:,-cost_len:,:])
 
                 validation_batch_loss.append(validation_loss.item())
@@ -134,7 +134,7 @@ for cell_type in cell_type_list:
     print(f'___Training {cell_type} model___')
 
 
-    sim_indices = np.arange(100)
+    sim_indices = np.arange(10)
 
     # Set up training and validation datasets
     num_sims = len(sim_indices)

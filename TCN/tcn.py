@@ -103,7 +103,7 @@ class model_TCN(nn.Module):
         out = self.fc_mid(out)
         out, (h, c) =  self.lstm(out, (h, c))
         out = self.fc_out(out)
-        return out
+        return out, h, c
 
 
 class model_ann(nn.Module):
