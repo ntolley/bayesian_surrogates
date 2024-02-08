@@ -47,10 +47,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
             batch_y = batch_y.float().to(device)
             batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
-            h0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
-            c0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
-
-            output_sequence, _, _ = model(batch_x, h0, c0)
+            output_sequence = model(batch_x)
             train_loss = criterion(output_sequence[:,-cost_len:,:], batch_y[:,-cost_len:,:])
 
             train_loss.backward() # Does backpropagation and calculates gradients
@@ -71,10 +68,7 @@ def train_validate_model(model, optimizer, criterion, max_epochs, training_gener
                 batch_y = batch_y.float().to(device)
                 batch_y = torch.flatten(batch_y.unfold(dimension=1, size=seq_len, step=step), start_dim=0, end_dim=1).transpose(1,2)
 
-                h0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
-                c0 = torch.zeros(model.n_lstm_layers, batch_x.size(0), model.lstm_hidden_dim).to(device)
-
-                output_sequence, _, _ = model(batch_x, h0, c0)
+                output_sequence = model(batch_x)
                 validation_loss = criterion(output_sequence[:,-cost_len:,:], batch_y[:,-cost_len:,:])
 
                 validation_batch_loss.append(validation_loss.item())
@@ -123,8 +117,8 @@ dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
 # dataset_type_list = ['subthreshold', 'connected']
 # cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 # cell_type_list = ['L5_pyramidal']
-# cell_type_list = ['L2_pyramidal']
-cell_type_list = ['L5_basket', 'L2_basket']
+cell_type_list = ['L2_pyramidal']
+# cell_type_list = ['L5_basket', 'L2_basket']
 
 
 data_path = f'/users/ntolley/scratch/bayesian_surrogates'
@@ -134,7 +128,7 @@ for cell_type in cell_type_list:
     print(f'___Training {cell_type} model___')
 
 
-    sim_indices = np.arange(1000)
+    sim_indices = np.arange(100)
 
     # Set up training and validation datasets
     num_sims = len(sim_indices)
@@ -174,9 +168,9 @@ for cell_type in cell_type_list:
     #                                   hidden_dim=hidden_dim, n_layers=n_layers, device=device)
     # model = torch.jit.script(model_pytorch).to(device)
 
-    seq_len = 800
+    seq_len = 500
     model = model_TCN(input_size, output_size, num_channels=[32]*3, kernel_size=20, dropout=0.2, seq_len=seq_len,
-                    hidden_size=128, n_lstm_layers=2, lstm_hidden_dim=32).to(device)
+                    hidden_size=128, n_lstm_layers=3, lstm_hidden_dim=32).to(device)
 
     lr = 0.001
     weight_decay = 0

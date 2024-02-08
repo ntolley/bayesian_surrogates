@@ -97,13 +97,13 @@ class model_TCN(nn.Module):
         self.lstm = nn.LSTM(input_size=num_channels[-1], hidden_size=lstm_hidden_dim, num_layers=n_lstm_layers, batch_first=True, dropout=dropout)
         self.fc_out = model_ann(lstm_hidden_dim, output_size, layer_size)
 
-    def forward(self, x, h, c):
+    def forward(self, x):
         # x needs to have dimension (N, C, L) in order to be passed into CNN
         out = self.tcn(x.transpose(1, 2)).transpose(1, 2)
         out = self.fc_mid(out)
-        out, (h, c) =  self.lstm(out, (h, c))
+        out, _ =  self.lstm(out)
         out = self.fc_out(out)
-        return out, h, c
+        return out
 
 
 class model_ann(nn.Module):
