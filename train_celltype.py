@@ -117,8 +117,8 @@ dataset_type_list = ['subthreshold', 'suprathreshold', 'connected']
 # dataset_type_list = ['subthreshold', 'connected']
 # cell_type_list = ['L5_pyramidal', 'L2_pyramidal', 'L5_basket', 'L2_basket']
 # cell_type_list = ['L5_pyramidal']
-cell_type_list = ['L2_pyramidal']
-# cell_type_list = ['L5_basket', 'L2_basket']
+# cell_type_list = ['L2_pyramidal']
+cell_type_list = ['L5_basket', 'L2_basket']
 
 
 data_path = f'/users/ntolley/scratch/bayesian_surrogates'
@@ -128,7 +128,7 @@ for cell_type in cell_type_list:
     print(f'___Training {cell_type} model___')
 
 
-    sim_indices = np.arange(100)
+    sim_indices = np.arange(1000)
 
     # Set up training and validation datasets
     num_sims = len(sim_indices)
